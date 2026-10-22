@@ -3,6 +3,7 @@ import {
   CONNECTED,
   METADATA,
   enabled as browserNotificationsEnabled,
+  attentionObserved,
 } from "../features/browserNotifications/notifications";
 import { openEventStream, type EventStreamSource } from "../services/realtime/eventStream";
 // Global metadata subscription on the shared realtime connection.
@@ -110,7 +111,7 @@ export function useGlobalEvents({
       fallbackTimer = window.setTimeout(() => {
         fallbackTimer = null;
         refreshGlobalEventsFallback(document.hidden, invalidateAndRefreshGroups);
-        if (!document.hidden || browserNotificationsEnabled()) {
+        if (!document.hidden || browserNotificationsEnabled() || attentionObserved()) {
           // While in polling fallback, periodically attempt to restore the subscription.
           // If reconnect succeeds, onopen() clears fallback polling.
           if (!es) {
@@ -123,7 +124,13 @@ export function useGlobalEvents({
     }
 
     function connectRealtime() {
-      if (!(shouldKeepGlobalEventsConnected(document.hidden) || browserNotificationsEnabled())) {
+      if (
+        !(
+          shouldKeepGlobalEventsConnected(document.hidden) ||
+          browserNotificationsEnabled() ||
+          attentionObserved()
+        )
+      ) {
         closeRealtime();
         clearFallbackTimer();
         return;
@@ -179,7 +186,13 @@ export function useGlobalEvents({
     }
 
     function handleVisibilityChange() {
-      if (!(shouldKeepGlobalEventsConnected(document.hidden) || browserNotificationsEnabled())) {
+      if (
+        !(
+          shouldKeepGlobalEventsConnected(document.hidden) ||
+          browserNotificationsEnabled() ||
+          attentionObserved()
+        )
+      ) {
         closeRealtime();
         clearFallbackTimer();
         return;

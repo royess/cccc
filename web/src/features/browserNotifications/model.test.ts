@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vite-plus/test";
-import { actorAttention, userMessages } from "./model";
+import { actorAttention, userMessages, taskAttention } from "./model";
 import type { Actor, LedgerEvent } from "../../types";
 const event = (patch: Partial<LedgerEvent> = {}): LedgerEvent => ({
   id: "one",
@@ -65,4 +65,34 @@ describe("human attention routing", () => {
       )[0].kind,
     ).toBe("input");
   });
+});
+
+it("keeps a read reply request until replied or cancelled", () => {
+  const request = event({
+    data: { to: ["user"], message_mode: "request_reply" },
+    _read_status: { user: true },
+  });
+  expect(userMessages("g", [request])[0].kind).toBe("reply");
+  for (const decision of [
+    { replied: true, cancelled: false },
+    { replied: false, cancelled: true },
+  ]) {
+    expect(
+      userMessages("g", [
+        {
+          ...request,
+          _obligation_status: { user: { ...decision, reply_requested: true, delivery_state: "" } },
+        },
+      ]),
+    ).toEqual([]);
+  }
+});
+it("does not turn ordinary blocked or external tasks into human actions", () => {
+  expect(
+    taskAttention("g", [
+      { id: "one", waiting_on: "external", status: "active" },
+      { id: "two", waiting_on: "user", status: "done" },
+      { id: "three", waiting_on: "user", status: "active", assignee: "a" },
+    ]).map((i) => i.taskId),
+  ).toEqual(["three"]);
 });

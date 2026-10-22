@@ -7,6 +7,7 @@ import { CONNECTED, METADATA, PREFERENCE } from "./notifications";
 const mock = vi.hoisted(() => ({
   ledger: vi.fn(),
   actors: vi.fn(),
+  tasks: vi.fn(),
   api: vi.fn(),
   notify: vi.fn(),
   open: vi.fn(),
@@ -16,6 +17,9 @@ vi.mock("../../services/api/actors", () => ({
 }));
 vi.mock("../../services/api/messaging", () => ({
   fetchLedgerTail: (...a: unknown[]) => mock.ledger(...a),
+}));
+vi.mock("../../services/api/tasks", () => ({
+  fetchTaskPages: (...a: unknown[]) => mock.tasks(...a),
 }));
 vi.mock("../../services/api/base", () => ({ apiJson: (...a: unknown[]) => mock.api(...a) }));
 const groups = [
@@ -57,6 +61,7 @@ beforeEach(() => {
     ok: true,
     result: { actors: [{ id: "a", runtime: "codex", running: true }] },
   });
+  mock.tasks.mockResolvedValue({ ok: true, result: { pages: {} } });
   mock.api.mockResolvedValue({
     ok: true,
     result: { state: { generation: "one", permissions: [], working: false } },
@@ -138,29 +143,157 @@ it("notifies current approvals on startup once and never relabels stale history 
   expect(mock.notify).toHaveBeenCalledTimes(2);
   mock.actors.mockResolvedValue({ ok: false, error: { code: "temporary" } });
   await act(async () => vi.advanceTimersByTimeAsync(60000));
-  expect(current!.error).toBe("unavailable");
+  expect(current!.staleGroups).toEqual(["g1", "g2"]);
 });
-it("disabling unsubscribes notification observation and needs no model or inbox writes", async () => {
+it("keeps the read-only board active independently of desktop permission", async () => {
   localStorage.setItem(PREFERENCE, "false");
   await mount();
-  expect(mock.ledger).not.toHaveBeenCalled();
+  expect(current!.on).toBe(false);
+  expect(current!.items).toHaveLength(2);
+  expect(mock.notify).not.toHaveBeenCalled();
+  expect(mock.ledger).toHaveBeenCalledTimes(2);
   await act(async () => current!.toggle());
   expect(current!.on).toBe(true);
-  expect(mock.ledger).toHaveBeenCalledTimes(2);
   await act(async () => current!.toggle());
   expect(current!.on).toBe(false);
   const n = mock.ledger.mock.calls.length;
   await act(async () => {
     emit();
-    await vi.advanceTimersByTimeAsync(60000);
+    await vi.advanceTimersByTimeAsync(5000);
   });
-  expect(mock.ledger).toHaveBeenCalledTimes(n);
+  expect(mock.ledger).toHaveBeenCalledTimes(n + 1);
 });
 
 it("suppresses popups for the focused source without treating it as approval", async () => {
   sourceVisible = true;
-  mock.api.mockResolvedValue({ ok: true, result: { state: { generation: "one", permissions: [{request_id:"r",kind:"permission",title:"Approve"}], working:true } } });
+  mock.api.mockResolvedValue({
+    ok: true,
+    result: {
+      state: {
+        generation: "one",
+        permissions: [{ request_id: "r", kind: "permission", title: "Approve" }],
+        working: true,
+      },
+    },
+  });
   await mount();
   expect(mock.notify).not.toHaveBeenCalled();
-  expect(mock.api.mock.calls.every(c=>c[1].method===undefined)).toBe(true);
+  expect(mock.api.mock.calls.every((c) => c[1].method === undefined)).toBe(true);
+});
+
+it("retains stale approvals on failed reads and removes them after authoritative resolution", async () => {
+  mock.api.mockResolvedValue({
+    ok: true,
+    result: {
+      state: {
+        generation: "one",
+        permissions: [{ request_id: "r", kind: "permission", title: "Approve" }],
+        working: true,
+      },
+    },
+  });
+  await mount();
+  expect(current!.items.filter((i) => i.kind === "approval")).toHaveLength(2);
+  mock.api.mockResolvedValue({ ok: false, error: { code: "temporary" } });
+  await act(async () => {
+    emit();
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(current!.items.filter((i) => i.kind === "approval")).toHaveLength(2);
+  expect(current!.staleGroups).toEqual(["g2"]);
+  mock.api.mockResolvedValue({
+    ok: true,
+    result: { state: { generation: "one", permissions: [], working: false } },
+  });
+  await act(async () => {
+    emit();
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(current!.items.filter((i) => i.groupId === "g2" && i.kind === "approval")).toEqual([]);
+  expect(current!.staleGroups).toEqual([]);
+});
+it("removes revoked Group data instead of retaining a stale private card", async () => {
+  await mount();
+  mock.ledger.mockResolvedValue({ ok: false, error: { code: "permission_denied" } });
+  await act(async () => {
+    emit();
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(current!.items.some((i) => i.groupId === "g2")).toBe(false);
+});
+it("includes only current human-waiting tasks and refreshes on task changes", async () => {
+  mock.tasks.mockResolvedValue({
+    ok: true,
+    result: {
+      pages: {
+        active: {
+          tasks: [{ id: "T001", title: "Review fixture", status: "active", waiting_on: "user" }],
+          hasMore: true,
+        },
+      },
+    },
+  });
+  await mount();
+  expect(current!.items.filter((i) => i.kind === "task")).toHaveLength(2);
+  expect(current!.limitedGroups).toEqual(["g1", "g2"]);
+  mock.tasks.mockResolvedValue({ ok: true, result: { pages: {} } });
+  await act(async () => {
+    window.dispatchEvent(
+      new CustomEvent(METADATA, { detail: { kind: "context.sync", group_id: "g2" } }),
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(current!.items.some((i) => i.groupId === "g2" && i.taskId)).toBe(false);
+  expect(mock.tasks.mock.calls.every((c) => c[1].attention === "waiting_user")).toBe(true);
+});
+it("updates reply obligations after read without writing a receipt", async () => {
+  mock.ledger.mockResolvedValue({
+    ok: true,
+    result: {
+      events: [
+        {
+          ...message("reply"),
+          data: { to: ["user"], message_mode: "request_reply", text: "Please review" },
+          _read_status: { user: true },
+        },
+      ],
+      has_more: false,
+    },
+  });
+  await mount();
+  expect(current!.items.every((i) => i.kind === "reply")).toBe(true);
+  mock.ledger.mockResolvedValue({
+    ok: true,
+    result: {
+      events: [
+        {
+          ...message("reply"),
+          data: { to: ["user"], message_mode: "request_reply" },
+          _obligation_status: { user: { replied: true } },
+        },
+      ],
+      has_more: false,
+    },
+  });
+  await act(async () => {
+    emit();
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(current!.items.some((i) => i.groupId === "g2")).toBe(false);
+  expect(mock.api.mock.calls.every((c) => c[1].method === undefined)).toBe(true);
+});
+
+it("does not flood historical messages after an initial read failure", async () => {
+  mock.ledger.mockResolvedValue({ ok: false, error: { code: "temporary" } });
+  await mount();
+  mock.ledger.mockResolvedValue({
+    ok: true,
+    result: { events: [message("old")], has_more: false },
+  });
+  await act(async () => {
+    emit();
+    await vi.advanceTimersByTimeAsync(5000);
+  });
+  expect(current!.items.filter((i) => i.groupId === "g2")).toHaveLength(1);
+  expect(mock.notify).not.toHaveBeenCalled();
 });

@@ -3,6 +3,19 @@ export const PREFERENCE = "cccc.browserNotifications.enabled.v1";
 export const CHANGE = "cccc:browser-notifications-changed";
 export const METADATA = "cccc:global-ledger-event";
 export const CONNECTED = "cccc:global-ledger-connected";
+let attentionObservers = 0;
+export const attentionObserved = () => attentionObservers > 0;
+export function observeAttention() {
+  attentionObservers += 1;
+  window.dispatchEvent(new Event(CHANGE));
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    attentionObservers -= 1;
+    window.dispatchEvent(new Event(CHANGE));
+  };
+}
 const SENT = "cccc.browserNotifications.sent.v1";
 export function permission(): NotificationPermission | "unsupported" {
   return typeof Notification === "undefined" || !window.isSecureContext
@@ -48,7 +61,7 @@ export function notify(
       ? zh
         ? "浏览器通知已正常工作。"
         : "Browser notifications are working."
-      : `${item.title} · ${item.kind === "message" ? (zh ? "发来消息" : "New message") : item.kind === "reply" ? (zh ? "等待你回复" : "Reply requested") : zh ? "需要审批或输入" : "Approval or input required"}`;
+      : `${item.title} · ${item.kind === "message" ? (zh ? "发来消息" : "New message") : item.kind === "reply" ? (zh ? "等待你回复" : "Reply requested") : item.kind === "task" ? (zh ? "任务等待你处理" : "Task needs your input") : zh ? "需要审批或输入" : "Approval or input required"}`;
     const n = new Notification(`CCCC · ${group}`, { body, tag: item.id });
     n.onclick = () => {
       window.focus();

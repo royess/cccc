@@ -23,6 +23,35 @@ actual session identifiers or host configuration. Use synthetic names and data
 in tests. This restriction applies to documentation, commit messages and every
 new commit reachable from a published branch, not only the final file tree.
 
+## Human attention board
+
+The header bell opens **My attention**, a read-only cross-Group view with
+Approvals & input, Awaiting reply, and Other actions columns. Filter by Group,
+expand long text, inspect waiting time and follow a card to its original source.
+Tasks explicitly waiting on `user` open in CCCC's existing native task board;
+this view does not add a task database, editable workflow or approval policy.
+The native per-Group board is available through the header clipboard icon,
+**Context Panel** > **Tasks** (narrow layouts: the **Context** menu item).
+
+Current runtime permissions and native waiting flags supply input cards. Only
+messages addressed to the human and current human-waiting tasks are included;
+peer Mail and ordinary blocked/external tasks stay out. Reading a reply request
+does not resolve it; a reply or cancellation does. Viewing the board does not
+approve, reply or write a read receipt. Complete actions in their original UI.
+Failed reads retain clearly stale cards; revoked or removed Group data is cleared.
+
+The board and optional system notifications share one snapshot reader and the
+existing global event subscription. The board works without notification
+permission. Turning off system alerts does not hide the board. Refreshes coalesce
+around metadata events, with a quiet 60-second browser catch-up; no Agent prompts,
+model calls or backend timers are added. Only bounded notification IDs and the
+existing system-alert preference persist locally; card text stays in memory.
+
+Scope is deliberately bounded: each Group's latest 100 messages, plus up to 100
+human-waiting planned and 100 active tasks. This is not a complete historical
+obligation inventory. The view discloses its limits and points to original
+conversations for earlier history. The page must stay open for system alerts.
+
 ## Build and verification
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md) for pinned toolchains and quality gates.

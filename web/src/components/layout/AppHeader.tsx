@@ -1,4 +1,4 @@
-import { BrowserNotifications } from "../../features/browserNotifications/BrowserNotifications";
+import { HumanAttention } from "../../features/browserNotifications/HumanAttention";
 import { useUIStore } from "../../stores/useUIStore";
 import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
@@ -229,7 +229,7 @@ export function AppHeader({
         className="flex shrink-0 items-center justify-end gap-2 md:w-[max(7.5rem,calc(var(--group-side-panel-width,0px)-1rem+4px))]"
         data-group-header-resources
       >
-        <BrowserNotifications />
+        <HumanAttention />
         <div
           ref={sidePanelControlsRef}
           className="flex shrink-0 items-center gap-0.5"

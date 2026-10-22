@@ -1,4 +1,4 @@
-import type { Actor, ChatMessageData, LedgerEvent } from "../../types";
+import type { Actor, ChatMessageData, LedgerEvent, Task } from "../../types";
 import type { AcpPermission } from "../../services/api/codexVoice";
 
 export type AttentionItem = {
@@ -6,7 +6,8 @@ export type AttentionItem = {
   groupId: string;
   actorId: string;
   eventId?: string;
-  kind: "approval" | "message" | "reply" | "input";
+  taskId?: string;
+  kind: "approval" | "message" | "reply" | "input" | "task";
   title: string;
   text: string;
   ts: string;
@@ -28,11 +29,10 @@ export function userMessages(groupId: string, events: LedgerEvent[]): AttentionI
       data.message_mode === "mail"
     )
       return [];
-    if (event._read_status?.user || data.pending_placeholder) return [];
-    const reply =
-      data.message_mode === "request_reply" &&
-      !event._obligation_status?.user?.replied &&
-      !event._obligation_status?.user?.cancelled;
+    if (data.pending_placeholder) return [];
+    const obligation = event._obligation_status?.user;
+    const reply = data.message_mode === "request_reply";
+    if (reply ? obligation?.replied || obligation?.cancelled : event._read_status?.user) return [];
     return [
       {
         id: `${groupId}:message:${event.id}`,
@@ -61,7 +61,19 @@ export function actorAttention(
       actorId: actor.id,
       kind: p.kind === "permission" ? "approval" : "input",
       title: actor.title || actor.id,
-      text: p.title || "Input / approval required",
+      text: [
+        p.title || "Input / approval required",
+        p.message,
+        p.overview,
+        ...(p.details && typeof p.details === "object"
+          ? [
+              (p.details as Record<string, unknown>).command,
+              (p.details as Record<string, unknown>).reason,
+            ]
+          : []),
+      ]
+        .filter((part): part is string => typeof part === "string" && !!part)
+        .join("\n"),
       ts: actor.effective_working_updated_at || "",
     }));
   // Native TUI owns some interactions, so its authoritative waiting flag can
@@ -83,4 +95,35 @@ export function actorAttention(
       },
     ];
   return [];
+}
+
+export function taskAttention(groupId: string, tasks: Task[]): AttentionItem[] {
+  return tasks
+    .filter(
+      (task) =>
+        task.waiting_on === "user" && ["planned", "active"].includes(task.status || "planned"),
+    )
+    .map((task) => ({
+      id: `${groupId}:task:${task.id}:${task.updated_at || task.created_at || ""}`,
+      groupId,
+      actorId: task.assignee || "",
+      taskId: task.id,
+      kind: "task",
+      title: task.assignee || "",
+      text: [task.title || task.id, task.outcome].filter(Boolean).join("\n"),
+      ts: task.updated_at || task.created_at || "",
+    }));
+}
+
+export const attentionColumn = (item: AttentionItem): "approval" | "reply" | "other" =>
+  item.kind === "approval" || item.kind === "input"
+    ? "approval"
+    : item.kind === "reply"
+      ? "reply"
+      : "other";
+
+export function sortAttention(items: AttentionItem[]): AttentionItem[] {
+  return [...items].sort(
+    (a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0) || a.id.localeCompare(b.id),
+  );
 }

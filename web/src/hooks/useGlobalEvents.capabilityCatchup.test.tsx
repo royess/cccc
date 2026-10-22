@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { observeAttention } from "../features/browserNotifications/notifications";
 import { useGlobalEvents } from "./useGlobalEvents";
 
 class FakeEventSource {
@@ -94,6 +95,25 @@ describe("useGlobalEvents capability catch-up", () => {
     } finally {
       hidden.mockRestore();
       window.removeEventListener("cccc:global-ledger-event", observed);
+    }
+  });
+
+  it("shares the existing background stream with the board while desktop alerts are off", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const release = observeAttention();
+    try {
+      await act(async () => root.render(<Probe refreshCapabilities={() => undefined} />));
+      expect(FakeEventSource.instances).toHaveLength(1);
+      const closed = vi.spyOn(FakeEventSource.instances[0], "close");
+      window.dispatchEvent(new Event("cccc:browser-notifications-changed"));
+      expect(FakeEventSource.instances).toHaveLength(1);
+      expect(closed).not.toHaveBeenCalled();
+      release();
+      expect(closed).toHaveBeenCalledOnce();
+    } finally {
+      release();
+      hidden.mockRestore();
     }
   });
 
