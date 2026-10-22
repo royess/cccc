@@ -1,3 +1,4 @@
+import { MessageSelectionCheckbox } from "../../features/messageRelay/MessageSelection";
 import { useTranslation } from "react-i18next";
 import type { ChatMessageData, LedgerEvent } from "../../types";
 import { classNames } from "../../utils/classNames";
@@ -228,6 +229,7 @@ export function MessageFooter({
       )}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {!readOnly && <MessageSelectionCheckbox event={event} />}
         {isMail ? (
           <span
             className="inline-flex items-center gap-1 rounded-full border border-sky-500/20 bg-sky-500/8 px-2 py-1 text-xs font-semibold tracking-tight text-sky-700 dark:text-sky-300"

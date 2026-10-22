@@ -193,7 +193,7 @@ export function AppHeader({
           className="flex shrink-0 items-center gap-1"
           data-group-work-controls-host
         />
-        <div className="hidden min-w-0 flex-1 basis-0 items-center justify-end @min-[760px]/group-header:flex">
+        <div className="hidden shrink-0 items-center justify-end @min-[760px]/group-header:flex">
           {!webReadOnly && (
             <div
               className="flex shrink-0 items-center gap-0.5 border-r border-[var(--glass-border-subtle)] pr-2"
@@ -226,7 +226,7 @@ export function AppHeader({
         </div>
       </div>
       <div
-        className="flex shrink-0 items-center justify-end gap-2 md:w-[max(7.5rem,calc(var(--group-side-panel-width,0px)-1rem+4px))]"
+        className="flex shrink-0 items-center justify-end gap-2 md:min-w-[max(7.5rem,calc(var(--group-side-panel-width,0px)-1rem+4px))]"
         data-group-header-resources
       >
         <HumanAttention />

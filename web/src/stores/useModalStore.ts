@@ -8,6 +8,8 @@ import { useFormStore } from "./useFormStore";
 interface RelaySource {
   groupId: string;
   event: LedgerEvent;
+  events?: LedgerEvent[];
+  onComplete?: () => void;
 }
 
 interface PresentationViewerState {
@@ -75,6 +77,7 @@ interface ModalState {
   openCodexVoiceSettings: () => void;
   setRecipientsModal: (eventId: string | null) => void;
   setRelayModal: (eventId: string | null, groupId?: string, event?: LedgerEvent | null) => void;
+  setRelayBatch: (groupId: string, events: LedgerEvent[], onComplete?: () => void) => void;
   openContextTask: (taskId: string) => void;
   clearContextTask: () => void;
   setGroupConnections: (groupId: string | null) => void;
@@ -153,6 +156,12 @@ export const useModalStore = create<ModalState>((set) => ({
       relayEventId: eventId,
       relaySource: eventId && groupId && event ? { groupId, event } : null,
       modals: { ...state.modals, relay: !!eventId },
+    })),
+  setRelayBatch: (groupId, events, onComplete) =>
+    set((state) => ({
+      relayEventId: events[0]?.id || null,
+      relaySource: events[0]?.id ? { groupId, event: events[0], events, onComplete } : null,
+      modals: { ...state.modals, relay: !!events[0]?.id },
     })),
   openContextTask: (taskId) =>
     set((state) => ({

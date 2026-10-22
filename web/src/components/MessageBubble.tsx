@@ -491,8 +491,8 @@ export const MessageBubble = memo(
       [msgData?.refs],
     );
     const shouldRenderMarkdown = useMemo(
-      () => !isStreaming && mayContainMarkdown(bubbleBodyText),
-      [bubbleBodyText, isStreaming],
+      () => !isStreaming && (isMail || mayContainMarkdown(bubbleBodyText)),
+      [bubbleBodyText, isMail, isStreaming],
     );
     const streamPhase = String(
       (msgData as { stream_phase?: unknown } | undefined)?.stream_phase || "",

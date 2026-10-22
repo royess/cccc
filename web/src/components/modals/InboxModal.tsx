@@ -1,3 +1,7 @@
+import {
+  MessageSelection,
+  MessageSelectionCheckbox,
+} from "../../features/messageRelay/MessageSelection";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Mail } from "lucide-react";
@@ -16,7 +20,9 @@ function mailText(ev: LedgerEvent): string {
 export interface InboxModalProps {
   isOpen: boolean;
   isDark: boolean;
+  readOnly?: boolean;
   actorId: string;
+  groupId: string;
   actors: Actor[];
   messages: LedgerEvent[];
   busy: string;
@@ -27,7 +33,9 @@ export interface InboxModalProps {
 export function InboxModal({
   isOpen,
   isDark,
+  readOnly = false,
   actorId,
+  groupId,
   actors,
   messages,
   busy,
@@ -56,7 +64,7 @@ export function InboxModal({
     <button
       className="rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50 transition-colors min-h-[40px] glass-btn text-[var(--color-text-secondary)]"
       onClick={onMarkAllRead}
-      disabled={!messages.length || busy.startsWith("inbox")}
+      disabled={readOnly || !messages.length || busy.startsWith("inbox")}
     >
       {t("inbox.markAllRead")}
     </button>
@@ -88,53 +96,62 @@ export function InboxModal({
       headerActions={headerActions}
       modalRef={modalRef}
     >
-      <div className="flex-1 min-h-0 overflow-auto p-4 space-y-2">
-        {messages.map((ev, idx) => {
-          const insight = getMessageInsight(ev.data);
-          return (
-            <div key={String(ev.id || idx)} className="rounded-xl px-4 py-3 glass-panel">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs font-semibold truncate text-[var(--color-text-primary)]">
-                  {getDisplayName(ev.by || "") || "—"}
-                </div>
-                <div
-                  className="text-xs shrink-0 text-[var(--color-text-muted)]"
-                  title={formatFullTime(ev.ts)}
-                >
-                  {formatTime(ev.ts)}
-                </div>
-              </div>
-              <div className="mt-2 text-sm break-words">
-                <LazyMarkdownRenderer
-                  content={mailText(ev)}
-                  isDark={isDark}
-                  enableMermaid
-                  className="text-[var(--color-text-primary)]"
-                  fallback={<div className="whitespace-pre-wrap break-words">{mailText(ev)}</div>}
-                />
-              </div>
-              {insight ? (
-                <div className="mt-3 border-t border-[var(--glass-border-subtle)] pt-2">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-muted)]">
-                    {t("chat:senderPerspective", { defaultValue: "Sender perspective" })}
+      <MessageSelection
+        key={`${groupId}:${actorId}`}
+        groupId={groupId}
+        readOnly={readOnly}
+        messages={messages}
+        onForward={onClose}
+      >
+        <div className="flex-1 min-h-0 overflow-auto p-4 space-y-2">
+          {messages.map((ev, idx) => {
+            const insight = getMessageInsight(ev.data);
+            return (
+              <div key={String(ev.id || idx)} className="rounded-xl px-4 py-3 glass-panel">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <MessageSelectionCheckbox event={ev} />
+                  <div className="text-xs font-semibold truncate text-[var(--color-text-primary)]">
+                    {getDisplayName(ev.by || "") || "—"}
                   </div>
-                  <div className="whitespace-pre-wrap break-words text-sm text-[var(--color-text-secondary)]">
-                    {insight}
+                  <div
+                    className="text-xs shrink-0 text-[var(--color-text-muted)]"
+                    title={formatFullTime(ev.ts)}
+                  >
+                    {formatTime(ev.ts)}
                   </div>
                 </div>
-              ) : null}
+                <div className="mt-2 text-sm break-words">
+                  <LazyMarkdownRenderer
+                    content={mailText(ev)}
+                    isDark={isDark}
+                    enableMermaid
+                    className="text-[var(--color-text-primary)]"
+                    fallback={<div className="whitespace-pre-wrap break-words">{mailText(ev)}</div>}
+                  />
+                </div>
+                {insight ? (
+                  <div className="mt-3 border-t border-[var(--glass-border-subtle)] pt-2">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-muted)]">
+                      {t("chat:senderPerspective", { defaultValue: "Sender perspective" })}
+                    </div>
+                    <div className="whitespace-pre-wrap break-words text-sm text-[var(--color-text-secondary)]">
+                      {insight}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {!messages.length && (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--glass-border-subtle)] bg-[var(--glass-tab-bg)] text-[var(--color-text-muted)]">
+                <Mail size={22} aria-hidden="true" />
+              </div>
+              <div className="text-sm text-[var(--color-text-muted)]">{t("inbox.noUnread")}</div>
             </div>
-          );
-        })}
-        {!messages.length && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--glass-border-subtle)] bg-[var(--glass-tab-bg)] text-[var(--color-text-muted)]">
-              <Mail size={22} aria-hidden="true" />
-            </div>
-            <div className="text-sm text-[var(--color-text-muted)]">{t("inbox.noUnread")}</div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </MessageSelection>
     </ModalFrame>
   );
 }

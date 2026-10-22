@@ -21,7 +21,6 @@ import {
 import { findPresentationSlot } from "../utils/presentation";
 import { buildPresentationRefForSlot } from "../utils/presentationRefs";
 import { formatGroupSettingsUpdateError } from "../utils/groupSettingsErrors";
-import { appendQuotedOriginalPerspective, getMessageInsight } from "../utils/messagePerspective";
 import { projectCrossGroupRecipients, projectMessageMode } from "../utils/crossGroupRecipients";
 import {
   useGroupStore,
@@ -170,6 +169,7 @@ export function AppModals({
 
   const {
     busy,
+    webReadOnly,
     isSmallScreen,
     chatSessions,
     setBusy,
@@ -182,6 +182,7 @@ export function AppModals({
   } = useUIStore(
     useShallow((s) => ({
       busy: s.busy,
+      webReadOnly: s.webReadOnly,
       isSmallScreen: s.isSmallScreen,
       chatSessions: s.chatSessions,
       setBusy: s.setBusy,
@@ -890,52 +891,6 @@ export function AppModals({
     );
   }, [presentationReferenceEvents, presentationViewer, selectedGroupId]);
 
-  const handleRelayMessage = async (dstGroupId: string, toTokens: string[], note: string) => {
-    const src = relaySourceEvent;
-    const srcGroupId = relaySourceGroupId;
-    const dstGroup = String(dstGroupId || "").trim();
-    const srcEventId = src?.id ? String(src.id) : "";
-    if (!src || !srcGroupId || !srcEventId) return;
-    if (!dstGroup) return;
-    if (dstGroup === srcGroupId) {
-      showError(t("destGroupDifferent"));
-      return;
-    }
-
-    const d = src.data as ChatMessageData | undefined;
-    const srcText = typeof d?.text === "string" ? d.text : "";
-    const srcInsight = getMessageInsight(d);
-    const srcQuoteText = typeof d?.quote_text === "string" ? d.quote_text.trim() : "";
-    const noteText = String(note || "").trim();
-    const relayBody = [noteText, String(srcText || "").trim()].filter(Boolean).join("\n\n");
-    const relayText = appendQuotedOriginalPerspective(relayBody, srcInsight, src.by || "sender");
-    if (!relayText.trim()) {
-      showError(t("relayTextEmpty"));
-      return;
-    }
-
-    const to = (toTokens || []).map((t) => String(t || "").trim()).filter((t) => t);
-
-    setBusy("relay");
-    try {
-      const resp = await api.relayMessage(
-        dstGroup,
-        relayText,
-        to,
-        { groupId: srcGroupId, eventId: srcEventId },
-        srcQuoteText,
-      );
-      if (!resp.ok) {
-        showError(`${resp.error.code}: ${resp.error.message}`);
-        return;
-      }
-      setRelayModal(null);
-      await refreshGroups();
-    } finally {
-      setBusy("");
-    }
-  };
-
   const handlePresentationPublishUrl = useCallback(
     async (payload: { slotId: string; url: string; title: string; summary: string }) => {
       const gid = String(selectedGroupId || "").trim();
@@ -1198,14 +1153,18 @@ export function AppModals({
 
       {modals.relay && relayEventId ? (
         <RelayMessageModal
-          key={`${selectedGroupId}:${relayEventId}`}
+          key={`${relaySourceGroupId}:${relayEventId}`}
           isOpen={true}
-          busy={busy === "relay"}
           srcGroupId={relaySourceGroupId}
           srcEvent={relaySourceEvent}
+          srcEvents={relaySource?.events}
           groups={groups}
           onCancel={() => setRelayModal(null)}
-          onSubmit={(dstGroupId, to, note) => void handleRelayMessage(dstGroupId, to, note)}
+          onComplete={async () => {
+            relaySource?.onComplete?.();
+            setRelayModal(null);
+            await refreshGroups();
+          }}
         />
       ) : null}
 
@@ -1394,9 +1353,11 @@ export function AppModals({
       />
 
       <InboxModal
+        readOnly={webReadOnly}
         isOpen={modals.inbox && inboxTarget?.groupId === selectedGroupId}
         isDark={isDark}
         actorId={inboxTarget?.actorId || ""}
+        groupId={inboxTarget?.groupId || selectedGroupId}
         actors={actors}
         messages={inboxMessages}
         busy={busy}

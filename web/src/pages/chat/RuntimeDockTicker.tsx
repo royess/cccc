@@ -49,7 +49,7 @@ function RuntimeDockTickerView({ groupId, entries, isDark, suppressed }: Runtime
   return (
     <div
       className={classNames(
-        "pointer-events-none absolute bottom-[calc(100%+0.8rem)] left-1/2 z-20 w-[min(92vw,560px)] -translate-x-1/2 transition-opacity duration-200 ease-out",
+        "pointer-events-none relative mb-1 max-w-full w-[min(92vw,560px)] transition-opacity duration-200 ease-out",
         suppressed ? "invisible opacity-0" : "visible opacity-100",
       )}
       aria-hidden="true"

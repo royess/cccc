@@ -767,8 +767,11 @@ export async function relayMessage(
   to: string[],
   src: { groupId: string; eventId: string },
   quoteText = "",
+  clientId?: string,
+  signal?: AbortSignal,
 ) {
   return apiJson(`/api/v1/groups/${encodeURIComponent(dstGroupId)}/send`, {
+    signal,
     method: "POST",
     body: JSON.stringify({
       text,
@@ -779,6 +782,7 @@ export async function relayMessage(
       message_mode: "send",
       src_group_id: src.groupId,
       src_event_id: src.eventId,
+      ...(clientId ? { client_id: clientId } : {}),
     }),
   });
 }

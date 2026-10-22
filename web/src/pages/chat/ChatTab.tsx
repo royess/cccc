@@ -1,3 +1,4 @@
+import { MessageSelection } from "../../features/messageRelay/MessageSelection";
 // ChatTab is the main chat page component.
 // Refactored to use useChatTab hook for business logic, reducing prop drilling.
 
@@ -914,51 +915,61 @@ export function ChatTab({
                       </div>
                     </div>
                   ) : (
-                    <VirtualMessageList
-                      messages={chatMessages}
-                      actors={actors}
-                      agentStates={agentStates}
-                      taskById={taskById}
-                      isDark={isDark}
-                      readOnly={readOnly}
+                    <MessageSelection
+                      key={selectedGroupId}
                       groupId={selectedGroupId}
-                      groupLabelById={messageGroupLabelById}
-                      webModelDeliveryStatusByEventId={webModelDeliveryStatusByEventId}
-                      viewKey={chatViewKey}
-                      followOnViewChangeKey={chatViewKey}
-                      initialScrollTargetId={chatInitialScrollTargetId}
-                      initialScrollAnchorId={chatInitialScrollAnchorId}
-                      initialScrollAnchorOffsetPx={chatInitialScrollAnchorOffsetPx}
-                      initialScrollOffsetPx={chatInitialScrollOffsetPx}
-                      highlightEventId={chatHighlightEventId}
-                      scrollRef={scrollRef}
-                      onReply={startReply}
-                      onShowRecipients={showRecipients}
-                      onCopyLink={copyMessageLink}
-                      onCopyContent={copyMessageText}
-                      onViewContext={
-                        hasChatFilter && !chatWindowProps ? viewMessageContext : undefined
-                      }
-                      onRelay={relayMessage}
-                      onOpenSource={openSourceMessage}
-                      onOpenPresentationRef={openPresentationRef}
-                      onOpenTaskRef={openTaskRef}
-                      showScrollButton={showScrollButton}
-                      onScrollButtonClick={handleScrollButtonClick}
-                      chatUnreadCount={chatUnreadCount}
-                      sendScrollRequest={sendScrollRequest}
-                      onSendScrollRequestConsumed={consumeSendScrollRequest}
-                      onScrollChange={handleScrollChange}
-                      onScrollSnapshot={handleScrollSnapshot}
-                      isLoadingHistory={listIsLoadingHistory}
-                      hasMoreHistory={listHasMoreHistory}
-                      isFilteredEmpty={isFilteredEmptyState}
-                      onLoadMore={loadMoreHistory}
-                    />
+                      readOnly={readOnly}
+                      messages={chatMessages}
+                    >
+                      <VirtualMessageList
+                        messages={chatMessages}
+                        actors={actors}
+                        agentStates={agentStates}
+                        taskById={taskById}
+                        isDark={isDark}
+                        readOnly={readOnly}
+                        groupId={selectedGroupId}
+                        groupLabelById={messageGroupLabelById}
+                        webModelDeliveryStatusByEventId={webModelDeliveryStatusByEventId}
+                        viewKey={chatViewKey}
+                        followOnViewChangeKey={chatViewKey}
+                        initialScrollTargetId={chatInitialScrollTargetId}
+                        initialScrollAnchorId={chatInitialScrollAnchorId}
+                        initialScrollAnchorOffsetPx={chatInitialScrollAnchorOffsetPx}
+                        initialScrollOffsetPx={chatInitialScrollOffsetPx}
+                        highlightEventId={chatHighlightEventId}
+                        scrollRef={scrollRef}
+                        onReply={startReply}
+                        onShowRecipients={showRecipients}
+                        onCopyLink={copyMessageLink}
+                        onCopyContent={copyMessageText}
+                        onViewContext={
+                          hasChatFilter && !chatWindowProps ? viewMessageContext : undefined
+                        }
+                        onRelay={relayMessage}
+                        onOpenSource={openSourceMessage}
+                        onOpenPresentationRef={openPresentationRef}
+                        onOpenTaskRef={openTaskRef}
+                        showScrollButton={showScrollButton}
+                        onScrollButtonClick={handleScrollButtonClick}
+                        chatUnreadCount={chatUnreadCount}
+                        sendScrollRequest={sendScrollRequest}
+                        onSendScrollRequestConsumed={consumeSendScrollRequest}
+                        onScrollChange={handleScrollChange}
+                        onScrollSnapshot={handleScrollSnapshot}
+                        isLoadingHistory={listIsLoadingHistory}
+                        hasMoreHistory={listHasMoreHistory}
+                        isFilteredEmpty={isFilteredEmptyState}
+                        onLoadMore={loadMoreHistory}
+                      />
+                    </MessageSelection>
                   )}
 
                   {!chatWindowProps && runtimeActors.length > 0 ? (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-1 z-20 sm:bottom-2">
+                    <div
+                      className="relative z-10 shrink-0 border-t border-[var(--glass-border-subtle)] pb-1"
+                      data-runtime-dock-row
+                    >
                       <RuntimeDock
                         groupId={selectedGroupId}
                         runtimeActors={runtimeActors}

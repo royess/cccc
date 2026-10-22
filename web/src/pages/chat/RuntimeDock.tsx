@@ -358,7 +358,7 @@ export function RuntimeDock({
       <div className="mx-auto flex w-full max-w-[1400px] justify-center">
         <div
           className={classNames(
-            "group/runtime-dock pointer-events-auto relative flex justify-center",
+            "group/runtime-dock pointer-events-auto relative flex min-w-0 max-w-full flex-col items-center justify-center",
             isSmallScreen ? "max-w-[calc(100vw-2.5rem)]" : "",
           )}
         >
@@ -374,7 +374,7 @@ export function RuntimeDock({
               "flex items-end opacity-[0.72] transition-opacity delay-[3000ms] duration-200 ease-out group-hover/runtime-dock:opacity-100 group-hover/runtime-dock:delay-0 group-has-[:focus-visible]/runtime-dock:opacity-100 group-has-[:focus-visible]/runtime-dock:delay-0",
               isSmallScreen
                 ? "max-w-[calc(100vw-2.5rem)] gap-2 overflow-x-auto px-2 pt-2 pb-3 scrollbar-hide"
-                : "gap-2",
+                : "max-w-full gap-2 overflow-x-auto px-2 pt-2 pb-2 scrollbar-hide",
             )}
           >
             <div className="relative flex items-end gap-2">

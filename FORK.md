@@ -96,3 +96,29 @@ Prefer upstream equivalents once the same behavior is verified. Consumers should
 pin an exact downstream commit. Source synchronization and builds do not deploy
 or restart services. Audit all new commits for private material before pushing;
 push only the reviewed branch, never all local refs or private draft history.
+
+## Messaging and layout refinements
+
+Completed Mail in chat uses the existing Markdown renderer without heuristic
+format detection, matching the native Inbox. Inline emphasis, tables and fenced
+code render normally; upstream raw-HTML and link restrictions remain unchanged.
+
+Use **Select messages** in chat or Inbox, select individual messages or all shown,
+then **Forward selected**. The existing single-message Relay action also supports
+multiple destinations. The forwarding dialog previews the selected messages,
+shows the message/Group product and keeps recipients separate for each Group.
+Each forward retains its original source reference and preserves Markdown text.
+Attachments remain in the original message, reachable through its source link;
+this feature does not add attachment-copy or file-export endpoints.
+
+Forwarding uses existing human send authorization and native `client_id`
+deduplication. Each message/destination pair has one frozen key and payload.
+Partial results are visible; explicit retries skip accepted items and reuse keys
+for remaining items. A stop control leaves unsent items pending. These receipts
+mean CCCC accepted the message, not that its recipient executed a task. Progress
+and keys live in the open dialog; browser reload is not durable batch recovery.
+
+Header resource controls reserve their intrinsic width, so the attention bell
+cannot extend into the native clipboard shortcut. The runtime dock and activity
+ticker occupy normal layout rows below messages instead of overlaying Reply.
+Long Actor rows scroll horizontally, including on desktop.
