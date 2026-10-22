@@ -1,6 +1,10 @@
+import { GroupFolderBar } from "../../features/groupFolders/GroupFolderBar";
+import { GroupFolderDialog } from "../../features/groupFolders/GroupFolderDialog";
+import { useGroupFolders, folderReorderIndices } from "../../features/groupFolders/useGroupFolders";
+import { startSidebarSync } from "../../features/groupFolders/sidebarSync";
 import { useUIStore } from "../../stores/useUIStore";
 import { groupConnectionCount } from "../../features/connect/protocol";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { Trash2 } from "lucide-react";
 import { instanceName } from "../../features/connect/instanceName";
 import { useTranslation } from "react-i18next";
@@ -83,7 +87,19 @@ export function GroupSidebar({
   onControlGroup,
   onDeleteGroup,
 }: GroupSidebarProps) {
-  const { t } = useTranslation("layout");
+  const { t, i18n } = useTranslation("layout");
+  const zh = i18n.language.startsWith("zh");
+  const folderPanelId = useId();
+  const { folders, activeFolderId } = useGroupFolders();
+  const activeFolder = folders.find((f) => f.id === activeFolderId);
+  const [folderDialog, setFolderDialog] = useState<{ groupId?: string } | null>(null);
+  useEffect(() => startSidebarSync(!!readOnly), [readOnly]);
+  useEffect(() => {
+    const state = useGroupFolders.getState();
+    const folder = state.folders.find((f) => f.id === state.activeFolderId);
+    if (folder && selectedGroupId && !folder.groupIds.includes(selectedGroupId))
+      state.selectFolder(null);
+  }, [selectedGroupId]);
   const controlsBusy = useUIStore((state) => state.busy.startsWith("group-"));
   const branding = useBrandingStore((s) => s.branding);
   const logoSrc = resolveThemeAwareLogoUrl(branding.logo_icon_url, isDark);
@@ -91,13 +107,41 @@ export function GroupSidebar({
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const archivedSet = useMemo(() => new Set(archivedGroupIds), [archivedGroupIds]);
-  const workingGroups = useMemo(
+  const allWorkingGroups = useMemo(
     () => orderedGroups.filter((g) => !archivedSet.has(String(g.group_id || "").trim())),
     [archivedSet, orderedGroups],
   );
-  const archivedGroups = useMemo(
+  const allArchivedGroups = useMemo(
     () => orderedGroups.filter((g) => archivedSet.has(String(g.group_id || "").trim())),
     [archivedSet, orderedGroups],
+  );
+  const workingGroups = useMemo(
+    () =>
+      activeFolder
+        ? allWorkingGroups.filter((g) => activeFolder.groupIds.includes(g.group_id))
+        : allWorkingGroups,
+    [activeFolder, allWorkingGroups],
+  );
+  const archivedGroups = useMemo(
+    () =>
+      activeFolder
+        ? allArchivedGroups.filter((g) => activeFolder.groupIds.includes(g.group_id))
+        : allArchivedGroups,
+    [activeFolder, allArchivedGroups],
+  );
+  const reorderVisible = useCallback(
+    (section: "working" | "archived", from: number, to: number) => {
+      const all = section === "working" ? allWorkingGroups : allArchivedGroups;
+      const visible = section === "working" ? workingGroups : archivedGroups;
+      const indices = folderReorderIndices(
+        all.map((g) => g.group_id),
+        visible.map((g) => g.group_id),
+        from,
+        to,
+      );
+      if (indices) onReorderSection(section, ...indices);
+    },
+    [allWorkingGroups, allArchivedGroups, workingGroups, archivedGroups, onReorderSection],
   );
   const collapsedGroups = useMemo(() => {
     if (!isCollapsed) return workingGroups;
@@ -184,20 +228,30 @@ export function GroupSidebar({
 
   const trailingActionsFor = useCallback(
     (group: GroupMeta) => {
-      if (!onDeleteGroup || readOnly) return [];
+      if (readOnly) return [];
       const gid = String(group.group_id || "");
       return [
         {
-          label: t("deleteGroup"),
-          disabled: controlsBusy,
-          icon: <Trash2 size={15} />,
-          tone: "danger" as const,
-          section: "danger",
-          onClick: () => onDeleteGroup(gid),
+          label: zh ? "加入或移出文件夹…" : "Organize in folders…",
+          icon: <FolderIcon size={15} />,
+          section: "folders",
+          onClick: () => setFolderDialog({ groupId: gid }),
         },
+        ...(onDeleteGroup
+          ? [
+              {
+                label: t("deleteGroup"),
+                disabled: controlsBusy,
+                icon: <Trash2 size={15} />,
+                tone: "danger" as const,
+                section: "danger",
+                onClick: () => onDeleteGroup(gid),
+              },
+            ]
+          : []),
       ];
     },
-    [onDeleteGroup, readOnly, t, controlsBusy],
+    [readOnly, zh, t, controlsBusy, onDeleteGroup],
   );
 
   const renderGroupList = useCallback(
@@ -230,7 +284,7 @@ export function GroupSidebar({
             onMenuAction={handleMenuAction}
             runActionsFor={runActionsFor}
             trailingActionsFor={trailingActionsFor}
-            onReorderSection={onReorderSection}
+            onReorderSection={reorderVisible}
             onSelectGroup={onSelectGroup}
             onWarmGroup={onWarmGroup}
             onClose={onClose}
@@ -274,7 +328,7 @@ export function GroupSidebar({
       isDark,
       onArchiveGroup,
       onClose,
-      onReorderSection,
+      reorderVisible,
       onRestoreGroup,
       onOpenGroupConnections,
       connect?.groupConnections,
@@ -404,8 +458,21 @@ export function GroupSidebar({
           </div>
         )}
 
+        <GroupFolderBar
+          panelId={folderPanelId}
+          groups={orderedGroups}
+          collapsed={isCollapsed}
+          readOnly={readOnly}
+          onManage={() => setFolderDialog({})}
+        />
+
         {/* Group list */}
-        <div className={groupSidebarScrollClass(isCollapsed)}>
+        <div
+          id={folderPanelId}
+          role="tabpanel"
+          aria-label={activeFolder?.name || (zh ? "全部工作组" : "All Groups")}
+          className={groupSidebarScrollClass(isCollapsed)}
+        >
           {!isCollapsed && (
             <div
               className="flex min-w-0 items-baseline gap-2 px-2 pb-2"
@@ -462,6 +529,23 @@ export function GroupSidebar({
             </div>
           )}
 
+          {activeFolder &&
+            orderedGroups.length > 0 &&
+            !workingGroups.length &&
+            !archivedGroups.length && (
+              <div className="p-4 text-center text-sm text-[var(--color-text-secondary)]">
+                <p>{zh ? "此文件夹中没有工作组。" : "No Groups in this folder."}</p>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="mt-2 underline"
+                    onClick={() => setFolderDialog({})}
+                  >
+                    {zh ? "编辑文件夹" : "Edit folders"}
+                  </button>
+                )}
+              </div>
+            )}
           {/* Empty state */}
           {!orderedGroups.length && !isCollapsed && (
             <div className="p-6 text-center">
@@ -513,6 +597,13 @@ export function GroupSidebar({
         )}
       </aside>
 
+      {folderDialog && !readOnly && (
+        <GroupFolderDialog
+          groups={orderedGroups}
+          groupId={folderDialog.groupId}
+          onClose={() => setFolderDialog(null)}
+        />
+      )}
       <SidebarMobileOverlay open={isOpen} onClose={onClose} />
     </>
   );

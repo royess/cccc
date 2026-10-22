@@ -1,3 +1,4 @@
+import { emitSidebarChange } from "../features/groupFolders/sidebarPreferenceEvents";
 import { isBrowserWebModelRuntime } from "../types";
 // Group state store (groups, actors, events, context, settings).
 import { create } from "zustand";
@@ -162,6 +163,14 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     if (nextOrder === groupOrder) return;
     saveGroupOrder(nextOrder);
     set({ groupOrder: nextOrder });
+    emitSidebarChange({
+      kind: "reorder",
+      fromId: subsetIds[fromIndex],
+      toId: subsetIds[toIndex],
+      after: fromIndex < toIndex,
+      archived: section === "archived",
+      knownIds: groupOrder,
+    });
   },
   archiveGroup: (groupId) => {
     const gid = String(groupId || "").trim();
@@ -169,6 +178,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     const next = normalizeGroupIdList([...get().archivedGroupIds, gid]);
     saveArchivedGroupIds(next);
     set({ archivedGroupIds: next });
+    emitSidebarChange({ kind: "archive", groupId: gid, archived: true });
   },
   restoreGroup: (groupId) => {
     const gid = String(groupId || "").trim();
@@ -176,6 +186,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     const next = get().archivedGroupIds.filter((id) => id !== gid);
     saveArchivedGroupIds(next);
     set({ archivedGroupIds: next });
+    emitSidebarChange({ kind: "archive", groupId: gid, archived: false });
   },
   getOrderedGroups: () => {
     const { groups, groupOrder, selectedGroupId, groupDoc, actors } = get();

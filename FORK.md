@@ -122,3 +122,31 @@ Header resource controls reserve their intrinsic width, so the attention bell
 cannot extend into the native clipboard shortcut. The runtime dock and activity
 ticker occupy normal layout rows below messages instead of overlaying Reply.
 Long Actor rows scroll horizontally, including on desktop.
+
+## Group folders and account sidebar preferences
+
+The sidebar keeps an **All** view and named folder tabs. A Group may appear in
+multiple folders. Use **Manage folders** to create, rename, reorder or delete
+folders and edit membership; each expanded Group menu also has **Organize in
+folders**. Deleting a folder never deletes its Groups. Archive remains a native
+presentation choice within each folder, and Group ordering remains global across
+folders. Filtered drag and keyboard moves map back to the native section order.
+Navigation to a Group outside the current folder reveals All.
+
+Folders, Group order and archive membership synchronize by authenticated
+`user_id` through the Rust `/api/v1/user/sidebar` endpoint. Use the same account
+on each browser/device; separate users have separate preferences. The localhost
+unauthenticated `local` identity is separate from a remote access-token account.
+The current folder selection stays local to avoid changing another device's view.
+Existing browser order/archive preferences import only when that account has no
+server record; later browsers load the canonical account state.
+Read-only browsers preserve the legacy view until a canonical record exists.
+
+Edits are small atomic operations under the existing settings lock, rather than
+stale whole-document replacements. Request IDs and stable move anchors handle
+unknown responses and retries. Pending edits are cached per account, with visible
+sync errors and retry. Each account retains the latest 512 request-ID receipts.
+Focus/online/visibility changes and one visible-page
+60-second catch-up read retrieve changes from other devices. This uses no model,
+Agent reminder or inbox consumption. The shared authentication, CSRF and exhibit
+write guards apply unchanged. Preferences confer no Group or execution access.

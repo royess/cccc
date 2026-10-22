@@ -39,6 +39,7 @@ mod realtime;
 mod remote_access;
 mod remote_access_projection;
 mod settings;
+mod sidebar_preferences;
 mod streams;
 mod system;
 mod system_branding;
@@ -83,6 +84,7 @@ fn first_non_blank<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(system::routes())
+        .merge(sidebar_preferences::routes())
         .merge(system_branding::routes())
         .merge(system_branding_assets::routes())
         .merge(system_branding_manifest::routes())
