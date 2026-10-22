@@ -1,3 +1,9 @@
+import {
+  CHANGE as BROWSER_NOTIFICATIONS_CHANGE,
+  CONNECTED,
+  METADATA,
+  enabled as browserNotificationsEnabled,
+} from "../features/browserNotifications/notifications";
 import { openEventStream, type EventStreamSource } from "../services/realtime/eventStream";
 // Global metadata subscription on the shared realtime connection.
 // Falls back to polling after consecutive connection errors.
@@ -104,7 +110,7 @@ export function useGlobalEvents({
       fallbackTimer = window.setTimeout(() => {
         fallbackTimer = null;
         refreshGlobalEventsFallback(document.hidden, invalidateAndRefreshGroups);
-        if (!document.hidden) {
+        if (!document.hidden || browserNotificationsEnabled()) {
           // While in polling fallback, periodically attempt to restore the subscription.
           // If reconnect succeeds, onopen() clears fallback polling.
           if (!es) {
@@ -117,7 +123,7 @@ export function useGlobalEvents({
     }
 
     function connectRealtime() {
-      if (!shouldKeepGlobalEventsConnected(document.hidden)) {
+      if (!(shouldKeepGlobalEventsConnected(document.hidden) || browserNotificationsEnabled())) {
         closeRealtime();
         clearFallbackTimer();
         return;
@@ -127,6 +133,7 @@ export function useGlobalEvents({
       es.addEventListener("event", (e) => {
         try {
           const ev = JSON.parse((e as MessageEvent).data || "{}");
+          window.dispatchEvent(new CustomEvent(METADATA, { detail: ev }));
           if (shouldRefreshGroupsAfterGlobalEvent(ev)) {
             invalidateAndRefreshGroups();
           }
@@ -149,6 +156,7 @@ export function useGlobalEvents({
         fallbackDelayMs = 10000;
         clearFallbackTimer();
         hasConnectedOnceRef.current = true;
+        window.dispatchEvent(new Event(CONNECTED));
         // Global event streams start from EOF, so both first connect and
         // reconnect need a catch-up refresh to cover the open window.
         if (shouldRefresh) {
@@ -171,7 +179,7 @@ export function useGlobalEvents({
     }
 
     function handleVisibilityChange() {
-      if (!shouldKeepGlobalEventsConnected(document.hidden)) {
+      if (!(shouldKeepGlobalEventsConnected(document.hidden) || browserNotificationsEnabled())) {
         closeRealtime();
         clearFallbackTimer();
         return;
@@ -183,9 +191,11 @@ export function useGlobalEvents({
 
     connectRealtime();
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener(BROWSER_NOTIFICATIONS_CHANGE, handleVisibilityChange);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener(BROWSER_NOTIFICATIONS_CHANGE, handleVisibilityChange);
       closeRealtime();
       clearFallbackTimer();
       hasConnectedOnceRef.current = false;

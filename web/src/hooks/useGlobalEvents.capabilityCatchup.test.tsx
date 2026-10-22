@@ -73,6 +73,30 @@ describe("useGlobalEvents capability catch-up", () => {
     expect(refreshCapabilities).toHaveBeenNthCalledWith(3, "g-selected");
   });
 
+  it("keeps the existing global owner connected in background only when browser alerts are enabled", async () => {
+    const values = new Map([["cccc.browserNotifications.enabled.v1", "true"]]);
+    vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) || null });
+    vi.stubGlobal("Notification", { permission: "granted" });
+    vi.stubGlobal("isSecureContext", true);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const observed = vi.fn();
+    window.addEventListener("cccc:global-ledger-event", observed);
+    try {
+      await act(async () => root.render(<Probe refreshCapabilities={() => undefined} />));
+      expect(FakeEventSource.instances).toHaveLength(1);
+      const source = FakeEventSource.instances[0];
+      const closed = vi.spyOn(source, "close");
+      source.emit("event", { kind: "chat.message", group_id: "g-other" });
+      expect(observed).toHaveBeenCalledOnce();
+      values.set("cccc.browserNotifications.enabled.v1", "false");
+      window.dispatchEvent(new Event("cccc:browser-notifications-changed"));
+      expect(closed).toHaveBeenCalledOnce();
+    } finally {
+      hidden.mockRestore();
+      window.removeEventListener("cccc:global-ledger-event", observed);
+    }
+  });
+
   it("does not poll the capability catalog while fallback retries the event stream", async () => {
     vi.useFakeTimers();
     try {

@@ -55,7 +55,8 @@ it.each([false, true])(
       );
       const badge = host.querySelector("[data-connection-state]")!;
       expect(badge).toBeTruthy();
-      expect(host.querySelectorAll('[role="status"]')).toHaveLength(1);
+      // Other header controls may expose their own status inside closed preferences.
+      expect(host.querySelectorAll('[data-connection-state][role="status"]')).toHaveLength(1);
       expect(host.querySelector("h1")?.parentElement?.querySelector("p")).toBeNull();
       // The visible text says what the dot says: the run state while connected,
       // the connection while the page is cut off and its run state may be stale.
