@@ -1,3 +1,5 @@
+> **Personal framework fork:** see [scope, build and maintenance policy](FORK.md). Upstream release links below distribute upstream builds.
+
 <div align="center">
 
 <img src="https://raw.githubusercontent.com/ChesterRa/cccc/main/assets/readme/hero.svg" width="100%" alt="CCCC coordinates coding agents and connected Groups with local ledgers and explicit delivery status" />
