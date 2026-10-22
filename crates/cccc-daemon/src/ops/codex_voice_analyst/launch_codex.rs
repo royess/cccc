@@ -105,6 +105,7 @@ impl AnalystSession {
         }
     }
 
+    #[cfg(test)]
     pub(super) async fn connect(config: ConnectConfig) -> io::Result<Self> {
         Self::connect_protocol(config, None).await
     }

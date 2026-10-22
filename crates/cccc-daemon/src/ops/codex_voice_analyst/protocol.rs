@@ -1,4 +1,5 @@
 use super::AnalystEvent;
+#[cfg(test)]
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
@@ -33,6 +34,7 @@ fn app_server_websocket_config() -> WebSocketConfig {
 mod turn_scope;
 use turn_scope::{PendingResponse, competing_turn_started};
 
+#[cfg(test)]
 pub(super) async fn connect_with_retry(
     endpoint: &str,
 ) -> io::Result<
