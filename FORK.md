@@ -23,6 +23,9 @@ local deployment records, runtime homes, credentials, conversations, screenshots
 actual session identifiers or host configuration. Use synthetic names and data
 in tests. This restriction applies to documentation, commit messages and every
 new commit reachable from a published branch, not only the final file tree.
+Already-published upstream protocol captures may retain their public identifiers
+when preserving upstream history. This exception does not permit new local
+session data or private deployment information.
 
 ## Human attention board
 
