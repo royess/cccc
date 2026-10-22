@@ -267,15 +267,16 @@ impl AnalystSession {
             )
         })?;
         let mut command = prepared.app_server;
-        if !(super::launch_command::preserve_policy(&env)
-            && env.get("CCCC_CODEX_SCOPED_MCP").map(String::as_str) == Some("1"))
-            && !super::super::codex_mcp::configure_mcp_only(
+        let keep_host_scope = super::launch_command::preserve_policy(&env)
+            && env.get("CCCC_CODEX_SCOPED_MCP").map(String::as_str) == Some("1");
+        if !(keep_host_scope
+            || super::super::codex_mcp::configure_mcp_only(
                 home,
                 &config.group_id,
                 &config.actor_id,
                 &mut command,
                 &mut env,
-            )
+            ))
         {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -302,7 +303,7 @@ impl AnalystSession {
                     .as_ref()
                     .map(|attempt| attempt.session_id.clone())
             };
-            let session = Self::launch_prepared(
+            Self::launch_prepared(
                 binding,
                 prepared.remote_tui_prefix,
                 command,
@@ -310,8 +311,7 @@ impl AnalystSession {
                 requested,
                 SessionPurpose::Actor,
             )
-            .await;
-            session
+            .await
         };
         let session = launch.await;
         let session = super::super::runtime_session::resume_failure::finish_launch(

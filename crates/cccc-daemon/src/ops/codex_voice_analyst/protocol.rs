@@ -51,7 +51,7 @@ pub(super) async fn connect_with_environment(
 > {
     let token = environment
         .get("CCCC_CODEX_WS_TOKEN_FILE")
-        .map(|path| std::fs::read_to_string(path))
+        .map(std::fs::read_to_string)
         .transpose()?;
     if token
         .as_ref()

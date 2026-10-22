@@ -281,7 +281,7 @@ mod preserved_policy_tests {
             "mcp_servers.cccc.enabled=false",
         ]
         .map(str::to_owned);
-        let (kept, _) = codex_global_arguments(&args, true).unwrap();
+        let (kept, _) = codex_global_arguments(&args, true).expect("preserved arguments");
         assert_eq!(
             kept,
             [

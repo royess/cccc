@@ -134,17 +134,19 @@ impl Approvals {
                             .filter(|o| o.len() == 1)
                             .and_then(|o| o.keys().next().map(String::as_str))
                     });
-                    match label {
-                        Some(
-                            name @ ("accept"
-                            | "acceptForSession"
-                            | "acceptWithExecpolicyAmendment"
-                            | "applyNetworkPolicyAmendment"
-                            | "decline"
-                            | "cancel"),
-                        ) => name,
-                        _ => "unsupported",
-                    }
+                    label
+                        .filter(|name| {
+                            matches!(
+                                *name,
+                                "accept"
+                                    | "acceptForSession"
+                                    | "acceptWithExecpolicyAmendment"
+                                    | "applyNetworkPolicyAmendment"
+                                    | "decline"
+                                    | "cancel"
+                            )
+                        })
+                        .unwrap_or("unsupported")
                 })
                 .collect();
             d["available_decisions"] = json!(labels);
@@ -236,11 +238,11 @@ mod tests {
         a.bind_thread("t");
         assert!(a.insert(&request()).is_err());
         a.observe(&started());
-        assert!(a.insert(&request()).unwrap());
-        assert!(!a.insert(&request()).unwrap());
+        assert!(a.insert(&request()).expect("insert approval fixture"));
+        assert!(!a.insert(&request()).expect("insert approval fixture"));
         assert_eq!(a.visible().len(), 1);
         assert!(!a.visible()[0].to_string().contains("raw_frame"));
-        let (id, r) = a.take("17", true).unwrap();
+        let (id, r) = a.take("17", true).expect("accept one operation");
         assert_eq!(id, 17);
         assert_eq!(r, json!({"decision":"accept"}));
         assert!(a.take("17", true).is_err());
@@ -253,14 +255,14 @@ mod tests {
         let mut r = request();
         r["params"]["turnId"] = json!("stale");
         assert!(a.insert(&r).is_err());
-        a.insert(&request()).unwrap();
+        a.insert(&request()).expect("insert approval fixture");
         a.observe(&json!({"method":"turn/completed","params":{"turn":{"id":"u"}}}));
         assert!(a.visible().is_empty());
         assert!(a.take("17", true).is_err());
         a = Approvals::default();
         a.bind_thread("t");
         a.observe(&started());
-        a.insert(&request()).unwrap();
+        a.insert(&request()).expect("insert approval fixture");
         a.clear();
         assert!(a.visible().is_empty());
     }
@@ -275,9 +277,9 @@ mod tests {
             a.observe(&started());
             let mut r = request();
             r["params"]["availableDecisions"] = choices;
-            a.insert(&r).unwrap();
+            a.insert(&r).expect("insert approval fixture");
             assert_eq!(
-                a.take("17", false).unwrap(),
+                a.take("17", false).expect("decline one operation"),
                 (json!(17), json!({"decision": expected}))
             );
             assert!(a.take("17", false).is_err());
@@ -295,7 +297,7 @@ mod tests {
             a.observe(&started());
             let mut r = request();
             r["params"]["availableDecisions"] = choices;
-            a.insert(&r).unwrap();
+            a.insert(&r).expect("insert approval fixture");
             assert!(a.take("17", true).is_err());
             assert!(a.take("17", false).is_err());
             assert_eq!(a.visible().len(), 1);
@@ -315,9 +317,15 @@ mod tests {
         ];
         choices.extend((0..20).map(|_| json!("decline")));
         r["params"]["availableDecisions"] = json!(choices);
-        a.insert(&r).unwrap();
+        a.insert(&r).expect("insert approval fixture");
         let details = a.visible()[0]["details"].clone();
-        assert_eq!(details["available_decisions"].as_array().unwrap().len(), 16);
+        assert_eq!(
+            details["available_decisions"]
+                .as_array()
+                .expect("decision labels")
+                .len(),
+            16
+        );
         assert_eq!(details["available_decisions"][0], "cancel");
         assert_eq!(
             details["available_decisions"][1],
@@ -334,7 +342,7 @@ mod tests {
         a.observe(&started());
         let mut r = request();
         r["params"]["availableDecisions"] = json!(["decline"]);
-        a.insert(&r).unwrap();
+        a.insert(&r).expect("insert approval fixture");
         assert!(a.take("17", true).is_err());
         assert_eq!(a.visible().len(), 1);
         assert!(a.take("17", false).is_ok());
@@ -350,7 +358,7 @@ mod scope_regressions {
         a.bind_thread("t");
         a.observe(&json!({"method":"turn/started","params":{"threadId":"t","turn":{"id":"u"}}}));
         for id in [1, 2] {
-            a.insert(&json!({"id":id,"method":"item/commandExecution/requestApproval","params":{"threadId":"t","turnId":"u","itemId":"i","command":"pwd","cwd":"/fixture"}})).unwrap();
+            a.insert(&json!({"id":id,"method":"item/commandExecution/requestApproval","params":{"threadId":"t","turnId":"u","itemId":"i","command":"pwd","cwd":"/fixture"}})).expect("insert approval fixture");
         }
         a.observe(
             &json!({"method":"serverRequest/resolved","params":{"threadId":"child","requestId":1}}),
@@ -370,7 +378,7 @@ mod scope_regressions {
         let start = json!({"method":"turn/started","params":{"threadId":"t","turn":{"id":"u"}}});
         let req = json!({"id":1,"method":"item/commandExecution/requestApproval","params":{"threadId":"t","turnId":"u","itemId":"i","command":"pwd","cwd":"/fixture","reason":"diagnostic","raw_secret":"never expose"}});
         a.observe(&start);
-        a.insert(&req).unwrap();
+        a.insert(&req).expect("insert approval fixture");
         a.observe(&start);
         a.observe(&json!({"method":"turn/started","params":{"threadId":"child","turn":{"id":"child-turn"}}}));
         assert_eq!(a.visible().len(), 1);
@@ -385,7 +393,7 @@ mod scope_regressions {
         let mut a = Approvals::default();
         a.bind_thread("t");
         a.observe(&json!({"method":"turn/started","params":{"threadId":"t","turn":{"id":"u"}}}));
-        a.insert(&json!({"id":2,"method":"item/fileChange/requestApproval","params":{"threadId":"t","turnId":"u","itemId":"f"}})).unwrap();
+        a.insert(&json!({"id":2,"method":"item/fileChange/requestApproval","params":{"threadId":"t","turnId":"u","itemId":"f"}})).expect("insert approval fixture");
         assert!(a.take("2", true).is_err());
         assert!(a.take("2", false).is_ok());
     }

@@ -16,7 +16,7 @@ impl<T> Socket for T where
 pub(super) enum Transport {
     WebSocket(Box<dyn Socket>),
     Stdio {
-        reader: BufReader<tokio::fs::File>,
+        reader: Box<BufReader<tokio::fs::File>>,
         writer: tokio::fs::File,
         buffer: Vec<u8>,
     },
@@ -26,8 +26,8 @@ impl Transport {
     pub(super) fn stdio(stdin: ChildStdin, stdout: ChildStdout) -> Self {
         use std::os::fd::OwnedFd;
         Self::Stdio {
-            reader: BufReader::new(tokio::fs::File::from_std(std::fs::File::from(
-                OwnedFd::from(stdout),
+            reader: Box::new(BufReader::new(tokio::fs::File::from_std(
+                std::fs::File::from(OwnedFd::from(stdout)),
             ))),
             writer: tokio::fs::File::from_std(std::fs::File::from(OwnedFd::from(stdin))),
             buffer: Vec::new(),
