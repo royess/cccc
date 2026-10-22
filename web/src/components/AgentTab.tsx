@@ -1,3 +1,4 @@
+import { actorRuntimeStatusKey } from "../utils/actorRuntimeStatus";
 import { isWebModelRuntime } from "../types";
 import { useTerminalTitlePaging } from "./agentTerminal/useTerminalTitlePaging";
 import {
@@ -430,11 +431,13 @@ export function AgentTab({
               ? "settings:dotsActor.unavailable"
               : "common:loading",
       );
-    if (!isRunning) return t("stopped");
-    if (workingState === "error") return t("common:error");
-    if (workingState === "working" || workingState === "waiting" || workingState === "stuck")
-      return t(workingState);
-    return t("running");
+    return t(
+      actorRuntimeStatusKey({
+        ...actor,
+        running: isRunning,
+        effective_working_state: workingState,
+      }),
+    );
   })();
   const handleNewSession = () => {
     if (!window.confirm(t("newSessionConfirm"))) return;
@@ -716,9 +719,8 @@ export function AgentTab({
     return () => clearTimeout(t);
   }, [canControl, compact, isVisible, isSmallScreen, terminalReady, terminalWritable]);
 
-  const stateHeadline =
-    String(agentState?.hot?.focus || agentState?.hot?.next_action || "").trim() ||
-    t("noAgentStateYet");
+  const taskHeadline = String(agentState?.hot?.focus || agentState?.hot?.next_action || "").trim();
+  const stateHeadline = taskHeadline || runtimeStatusText;
   const stateTask = String(agentState?.hot?.active_task_id || "").trim();
   const blockerCount = Array.isArray(agentState?.hot?.blockers)
     ? agentState.hot.blockers.length
@@ -911,7 +913,7 @@ export function AgentTab({
                   <div
                     className={classNames(
                       "sm:hidden mt-1 text-xs truncate leading-tight",
-                      stateHeadline !== t("noAgentStateYet")
+                      Boolean(taskHeadline)
                         ? "text-[var(--color-text-secondary)]"
                         : "text-[var(--color-text-muted)] italic",
                     )}
@@ -936,7 +938,7 @@ export function AgentTab({
                     <div
                       className={classNames(
                         "min-w-0 text-sm font-medium leading-[1.15rem]",
-                        stateHeadline !== t("noAgentStateYet")
+                        Boolean(taskHeadline)
                           ? "text-[var(--color-text-primary)]"
                           : isDark
                             ? "text-slate-500 italic"

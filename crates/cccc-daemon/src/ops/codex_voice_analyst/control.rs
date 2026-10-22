@@ -32,6 +32,7 @@ impl AnalystSession {
         match &self.protocol {
             ManagedProtocol::Acp(protocol) if self.structured_only() => protocol.permissions(),
             ManagedProtocol::Pi(protocol) => protocol.permissions(),
+            ManagedProtocol::Codex(protocol) => protocol.permissions(),
             _ => Vec::new(),
         }
     }
@@ -48,6 +49,9 @@ impl AnalystSession {
                 protocol.respond_permission(request_id, allow).await
             }
             ManagedProtocol::Pi(protocol) => protocol.respond_permission(request_id, allow).await,
+            ManagedProtocol::Codex(protocol) => {
+                protocol.respond_permission(request_id, allow).await
+            }
             _ => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "This Runtime handles permissions in its native terminal",

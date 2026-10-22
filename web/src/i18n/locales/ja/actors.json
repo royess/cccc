@@ -1,4 +1,8 @@
 {
+  "idle": "待機中",
+  "runtimeUnknown": "実行状態は取得できません",
+  "disconnected": "切断",
+  "runtimeState": "実行状態",
   "agentNotFound": "エージェントが見つかりません",
   "loadingAgent": "エージェントを読み込み中…",
   "foreman": "フォアマン",

@@ -267,29 +267,53 @@ impl AnalystSession {
             )
         })?;
         let mut command = prepared.app_server;
-        if !super::super::codex_mcp::configure_mcp_only(
-            home,
-            &config.group_id,
-            &config.actor_id,
-            &mut command,
-            &mut env,
-        ) {
+        if !(super::launch_command::preserve_policy(&env)
+            && env.get("CCCC_CODEX_SCOPED_MCP").map(String::as_str) == Some("1"))
+            && !super::super::codex_mcp::configure_mcp_only(
+                home,
+                &config.group_id,
+                &config.actor_id,
+                &mut command,
+                &mut env,
+            )
+        {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "CCCC executable is unavailable for Codex Actor MCP binding",
             ));
         }
-        let session = Self::launch_prepared(
-            binding,
-            prepared.remote_tui_prefix,
-            command,
-            env,
-            resume_attempt
-                .as_ref()
-                .map(|attempt| attempt.session_id.clone()),
-            SessionPurpose::Actor,
-        )
-        .await;
+        let initial_thread = env.get("CCCC_CODEX_INITIAL_THREAD").cloned();
+        let launch = async {
+            let requested = if let Some(thread) = initial_thread.as_deref() {
+                if !super::launch_command::preserve_policy(&env) {
+                    return Err(io::Error::other(
+                        "initial thread adoption requires preserved host policy",
+                    ));
+                }
+                Some(super::super::runtime_session::initial_codex_thread(
+                    home,
+                    &config.group_id,
+                    &config.actor_id,
+                    resume_attempt.as_ref(),
+                    thread,
+                )?)
+            } else {
+                resume_attempt
+                    .as_ref()
+                    .map(|attempt| attempt.session_id.clone())
+            };
+            let session = Self::launch_prepared(
+                binding,
+                prepared.remote_tui_prefix,
+                command,
+                env,
+                requested,
+                SessionPurpose::Actor,
+            )
+            .await;
+            session
+        };
+        let session = launch.await;
         let session = super::super::runtime_session::resume_failure::finish_launch(
             home,
             Some((&config.group_id, &config.actor_id)),
@@ -310,12 +334,28 @@ impl AnalystSession {
                 },
             )
         }) {
-            tracing::warn!(
-                %error,
-                group_id = %config.group_id,
-                actor_id = %config.actor_id,
-                "failed to persist Codex Actor app-server thread"
-            );
+            if initial_thread.is_some() {
+                let startup = io::Error::other(
+                    "initial thread adopted but native binding persistence failed",
+                );
+                return match session.stop(session.generation()).await {
+                    Ok(()) => Err(startup),
+                    Err(cleanup) => {
+                        if let Some(owner) = session.process.as_ref() {
+                            Err(io::Error::other(StartupCleanupFailure {
+                                owner: PendingManagedStartup(Arc::clone(owner)),
+                                startup,
+                                cleanup,
+                            }))
+                        } else {
+                            Err(io::Error::other(
+                                "initial thread persistence and cleanup unresolved",
+                            ))
+                        }
+                    }
+                };
+            }
+            tracing::warn!(%error,group_id=%config.group_id,actor_id=%config.actor_id,"failed to persist Codex Actor app-server thread");
         }
         Ok(session)
     }
@@ -395,7 +435,10 @@ impl AnalystSession {
     }
 
     pub(crate) fn structured_only(&self) -> bool {
-        self.runtime.supports_acp_mode() || self.runtime == ActorRuntime::Pi
+        self.runtime.supports_acp_mode()
+            || self.runtime == ActorRuntime::Pi
+            || (self.runtime == ActorRuntime::Codex
+                && super::launch_command::stdio(&self.environment))
     }
 
     pub(crate) fn resumable(&self) -> bool {

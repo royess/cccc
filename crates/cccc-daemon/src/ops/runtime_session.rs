@@ -69,6 +69,35 @@ pub fn prepare_codex_app_thread(
     Ok(attempt)
 }
 
+/// Host-configured first adoption; a usable receipt is written only after the
+/// provider confirms the exact resumed thread. Never override a mismatched binding.
+pub(crate) fn initial_codex_thread(
+    home: &HomeLayout,
+    group: &str,
+    actor: &str,
+    attempt: Option<&resume_failure::ResumeAttempt>,
+    requested: &str,
+) -> std::io::Result<String> {
+    let requested = requested.trim();
+    if !resume_enabled() || uuid::Uuid::parse_str(requested).is_err() {
+        return Err(std::io::Error::other(
+            "initial Codex resume requires enabled native resume and an exact thread UUID",
+        ));
+    }
+    if let Some(attempt) = attempt {
+        if attempt.session_id != requested {
+            return Err(std::io::Error::other(
+                "initial thread conflicts with native binding",
+            ));
+        }
+    } else if path(home, group, actor)?.try_exists()? {
+        return Err(std::io::Error::other(
+            "existing native binding did not match; initial adoption refused",
+        ));
+    }
+    Ok(requested.into())
+}
+
 pub struct CodexAppThread<'a> {
     pub id: &'a str,
     pub resumed: bool,
@@ -598,5 +627,40 @@ mod tests {
             app_thread_command_fingerprint(&stdio),
             app_thread_command_fingerprint(&websocket)
         );
+    }
+}
+
+#[cfg(test)]
+mod initial_codex_adoption_tests {
+    use super::*;
+    #[test]
+    fn initial_adoption_cannot_fabricate_or_overwrite_a_binding() {
+        let temp = tempfile::tempdir().expect("fixture");
+        let home = HomeLayout::from_path(temp.path().join("home")).expect("home");
+        let store = GroupStore::new(home.clone()).expect("store");
+        let group = store.create("adoption fixture", "").expect("group");
+        let thread = "00000000-0000-4000-8000-000000000001";
+        assert!(initial_codex_thread(&home, &group.group_id, "fixture", None, "invalid").is_err());
+        assert_eq!(
+            initial_codex_thread(&home, &group.group_id, "fixture", None, thread)
+                .expect("host request only"),
+            thread
+        );
+        assert!(
+            !path(&home, &group.group_id, "fixture")
+                .expect("path")
+                .exists(),
+            "selection is not a usable native receipt"
+        );
+        std::fs::create_dir_all(
+            path(&home, &group.group_id, "fixture")
+                .expect("path")
+                .parent()
+                .expect("parent"),
+        )
+        .expect("directory");
+        std::fs::write(path(&home, &group.group_id, "fixture").expect("path"), "{}")
+            .expect("unmatched fixture metadata");
+        assert!(initial_codex_thread(&home, &group.group_id, "fixture", None, thread).is_err());
     }
 }

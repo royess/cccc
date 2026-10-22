@@ -21,7 +21,8 @@ pub(super) fn prepare(
         configured
     };
     let executable = resolve_runtime_executable(&configured[0], environment)?;
-    let (arguments, has_web_search) = codex_global_arguments(&configured[1..])?;
+    let (arguments, has_web_search) =
+        codex_global_arguments(&configured[1..], preserve_policy(environment))?;
     let model = model_from_arguments(&arguments);
     // Operators manage updates. Keep the startup menu from consuming delivered
     // messages as upgrade choices; explicit arguments can override this default.
@@ -30,9 +31,14 @@ pub(super) fn prepare(
         "-c".into(),
         "check_for_update_on_startup=false".into(),
     ];
-    remote_tui_prefix.extend(arguments);
-    if !has_web_search {
-        remote_tui_prefix.extend(["-c".into(), "web_search=\"live\"".into()]);
+    let mut app_server = remote_tui_prefix.clone();
+    app_server.extend(arguments);
+    let (viewer_arguments, _) = codex_global_arguments(&configured[1..], false)?;
+    remote_tui_prefix.extend(viewer_arguments);
+    if !has_web_search && !preserve_policy(environment) {
+        let search = ["-c".into(), "web_search=\"live\"".into()];
+        remote_tui_prefix.extend(search.clone());
+        app_server.extend(search);
     }
     // Remote resume clients cannot override permissions owned by app-server.
     let permission_overrides = [
@@ -44,12 +50,17 @@ pub(super) fn prepare(
         "-c".into(),
         "sandbox_mode=\"danger-full-access\"".into(),
     ];
-    let mut app_server = remote_tui_prefix.clone();
-    app_server.extend(permission_overrides);
+    if !preserve_policy(environment) {
+        app_server.extend(permission_overrides);
+    }
     app_server.extend([
         "app-server".into(),
         "--listen".into(),
-        "ws://127.0.0.1:0".into(),
+        if stdio(environment) {
+            "stdio://".into()
+        } else {
+            "ws://127.0.0.1:0".into()
+        },
     ]);
     Ok(PreparedLaunch {
         app_server,
@@ -102,21 +113,41 @@ pub(super) fn resolve_runtime_executable(
     Ok(path)
 }
 
-fn codex_global_arguments(arguments: &[String]) -> io::Result<(Vec<String>, bool)> {
+fn codex_global_arguments(arguments: &[String], preserve: bool) -> io::Result<(Vec<String>, bool)> {
     let mut result = Vec::new();
     let mut has_web_search = false;
     let mut index = 0usize;
     while index < arguments.len() {
         let argument = arguments[index].as_str();
         match argument {
-            "--dangerously-bypass-approvals-and-sandbox" | "--yolo" => index += 1,
+            "--dangerously-bypass-approvals-and-sandbox" | "--yolo" => {
+                if preserve {
+                    return invalid_command("preserved policy forbids bypass flags");
+                }
+                index += 1;
+            }
             "--ask-for-approval" | "-a" | "--sandbox" | "-s" => {
-                require_following_argument(arguments, index, argument)?;
+                let value = require_following_argument(arguments, index, argument)?;
+                if preserve {
+                    result.extend([
+                        "-c".into(),
+                        format!(
+                            "{}={value:?}",
+                            if matches!(argument, "-a" | "--ask-for-approval") {
+                                "approval_policy"
+                            } else {
+                                "sandbox_mode"
+                            }
+                        ),
+                    ]);
+                }
                 index += 2;
             }
             "--config" | "-c" => {
                 let value = require_following_argument(arguments, index, argument)?;
-                if !host_owned_codex_config(value) {
+                if !host_owned_codex_config(value)
+                    || (preserve && matches!(config_key(value), "approval_policy" | "sandbox_mode"))
+                {
                     has_web_search |= config_key(value) == "web_search";
                     result.extend([argument.to_owned(), value.to_owned()]);
                 }
@@ -133,7 +164,7 @@ fn codex_global_arguments(arguments: &[String]) -> io::Result<(Vec<String>, bool
                 result.push(argument.to_owned());
                 index += 1;
             }
-            "--oss" | "--strict-config" | "--dangerously-bypass-hook-trust" => {
+            "--no-daemon" | "--oss" | "--strict-config" | "--dangerously-bypass-hook-trust" => {
                 result.push(argument.to_owned());
                 index += 1;
             }
@@ -142,7 +173,9 @@ fn codex_global_arguments(arguments: &[String]) -> io::Result<(Vec<String>, bool
                 if value.is_empty() {
                     return invalid_command("--config requires key=value");
                 }
-                if !host_owned_codex_config(value) {
+                if !host_owned_codex_config(value)
+                    || (preserve && matches!(config_key(value), "approval_policy" | "sandbox_mode"))
+                {
                     has_web_search |= config_key(value) == "web_search";
                     result.push(argument.to_owned());
                 }
@@ -155,6 +188,20 @@ fn codex_global_arguments(arguments: &[String]) -> io::Result<(Vec<String>, bool
             _ if argument.starts_with("--ask-for-approval=")
                 || argument.starts_with("--sandbox=") =>
             {
+                if preserve {
+                    let (flag, value) = argument.split_once('=').expect("equals flag");
+                    result.extend([
+                        "-c".into(),
+                        format!(
+                            "{}={value:?}",
+                            if flag == "--ask-for-approval" {
+                                "approval_policy"
+                            } else {
+                                "sandbox_mode"
+                            }
+                        ),
+                    ]);
+                }
                 index += 1;
             }
             _ => {
@@ -211,4 +258,86 @@ fn host_owned_codex_config(value: &str) -> bool {
 
 fn invalid_command<T>(message: impl Into<String>) -> io::Result<T> {
     Err(io::Error::new(io::ErrorKind::InvalidInput, message.into()))
+}
+
+// Host opt-in for the isolated native-policy migration. Never enabled implicitly.
+pub(super) fn preserve_policy(environment: &BTreeMap<String, String>) -> bool {
+    environment
+        .get("CCCC_CODEX_PRESERVE_POLICY")
+        .map(String::as_str)
+        == Some("1")
+}
+
+#[cfg(test)]
+mod preserved_policy_tests {
+    use super::*;
+    #[test]
+    fn restrictive_arguments_survive_without_restoring_host_mcp_overrides() {
+        let args = [
+            "-a",
+            "on-request",
+            "--sandbox=workspace-write",
+            "-c",
+            "mcp_servers.cccc.enabled=false",
+        ]
+        .map(str::to_owned);
+        let (kept, _) = codex_global_arguments(&args, true).unwrap();
+        assert_eq!(
+            kept,
+            [
+                "-c",
+                "approval_policy=\"on-request\"",
+                "-c",
+                "sandbox_mode=\"workspace-write\""
+            ]
+        );
+        assert!(codex_global_arguments(&["--yolo".into()], true).is_err());
+    }
+}
+
+pub(super) fn stdio(environment: &BTreeMap<String, String>) -> bool {
+    preserve_policy(environment)
+        && environment.get("CCCC_CODEX_STDIO").map(String::as_str) == Some("1")
+}
+
+#[cfg(all(test, unix))]
+mod native_viewer_policy_tests {
+    use super::*;
+    #[test]
+    fn preserved_policy_belongs_to_server_and_never_remote_resume_client() {
+        let env = BTreeMap::from([("CCCC_CODEX_PRESERVE_POLICY".into(), "1".into())]);
+        let command = [
+            "/usr/bin/true",
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "on-request",
+            "-c",
+            "approval_policy=\"on-request\"",
+            "-c",
+            "sandbox_mode=\"workspace-write\"",
+            "--model",
+            "test-model",
+        ]
+        .map(str::to_owned);
+        let prepared = prepare(&command, &env).expect("preserved native launch");
+        assert!(
+            prepared
+                .app_server
+                .iter()
+                .any(|v| v == "sandbox_mode=\"workspace-write\"")
+        );
+        assert!(
+            prepared
+                .app_server
+                .iter()
+                .any(|v| v == "approval_policy=\"on-request\"")
+        );
+        assert!(!prepared.app_server.iter().any(|v| v.contains("danger")));
+        assert!(!prepared.remote_tui_prefix.iter().any(|v| v == "--sandbox"
+            || v == "--ask-for-approval"
+            || v.contains("approval_policy")
+            || v.contains("sandbox_mode")));
+        assert!(prepared.remote_tui_prefix.iter().any(|v| v == "test-model"));
+    }
 }

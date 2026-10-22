@@ -1,4 +1,8 @@
 {
+  "idle": "Idle",
+  "runtimeUnknown": "Runtime state unavailable",
+  "disconnected": "Disconnected",
+  "runtimeState": "Runtime",
   "agentNotFound": "Agent not found",
   "loadingAgent": "Loading agent…",
   "foreman": "foreman",

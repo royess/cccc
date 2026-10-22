@@ -1,4 +1,8 @@
 {
+  "idle": "空闲",
+  "runtimeUnknown": "运行状态不可用",
+  "disconnected": "连接断开",
+  "runtimeState": "运行状态",
   "agentNotFound": "未找到智能体",
   "loadingAgent": "加载智能体中…",
   "foreman": "领班",

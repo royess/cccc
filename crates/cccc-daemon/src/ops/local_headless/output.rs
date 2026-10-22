@@ -4,6 +4,13 @@ use serde_json::{Map, Value, json};
 pub(super) fn handle_message(session: &Session, message: Value) {
     if message.get("id").is_some() {
         if message.get("method").and_then(Value::as_str).is_some() {
+            // The native Codex TUI owns its server interactions. This observer
+            // must not race it by rejecting a prompt it can answer natively.
+            if session.managed.runtime() == cccc_contracts::ActorRuntime::Codex
+                && !session.managed.structured_only()
+            {
+                return;
+            }
             respond_unsupported_server_request(session, &message);
         }
         return;

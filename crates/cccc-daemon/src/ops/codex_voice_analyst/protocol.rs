@@ -3,7 +3,11 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::sync::{Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
+#[path = "protocol_approvals.rs"]
+mod approvals;
+#[path = "protocol_transport.rs"]
+mod transport;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -34,10 +38,53 @@ pub(super) async fn connect_with_retry(
 ) -> io::Result<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
 > {
+    connect_with_token(endpoint, None).await
+}
+
+pub(super) async fn connect_with_environment(
+    endpoint: &str,
+    environment: &std::collections::BTreeMap<String, String>,
+) -> io::Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+> {
+    let token = environment
+        .get("CCCC_CODEX_WS_TOKEN_FILE")
+        .map(|path| std::fs::read_to_string(path))
+        .transpose()?;
+    if token
+        .as_ref()
+        .is_some_and(|v| v.trim().len() != 64 || !v.trim().bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "invalid native transport credential",
+        ));
+    }
+    connect_with_token(endpoint, token.as_deref().map(str::trim)).await
+}
+
+async fn connect_with_token(
+    endpoint: &str,
+    token: Option<&str>,
+) -> io::Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
     let deadline = tokio::time::Instant::now() + CONNECT_TIMEOUT;
     loop {
+        let mut request = endpoint
+            .into_client_request()
+            .map_err(|_| io::Error::other("invalid native transport endpoint"))?;
+        if let Some(token) = token {
+            request.headers_mut().insert(
+                "Authorization",
+                format!("Bearer {token}")
+                    .parse()
+                    .map_err(|_| io::Error::other("invalid native transport credential"))?,
+            );
+        }
         match tokio_tungstenite::connect_async_with_config(
-            endpoint,
+            request,
             Some(app_server_websocket_config()),
             false,
         )
@@ -66,8 +113,19 @@ struct RpcRequest {
 
 enum ProtocolCommand {
     Request(RpcRequest),
-    Respond { id: Value, result: Value },
-    RespondError { id: Value, error: Value },
+    Respond {
+        id: Value,
+        result: Value,
+    },
+    RespondError {
+        id: Value,
+        error: Value,
+    },
+    Permission {
+        request_id: String,
+        allow: bool,
+        response: oneshot::Sender<io::Result<()>>,
+    },
     Close,
 }
 
@@ -75,6 +133,7 @@ pub(super) struct ProtocolClient {
     commands: mpsc::Sender<ProtocolCommand>,
     pub(super) events: broadcast::Sender<AnalystEvent>,
     task: Mutex<Option<JoinHandle<()>>>,
+    approvals: Arc<Mutex<approvals::Approvals>>,
 }
 
 impl ProtocolClient {
@@ -86,22 +145,76 @@ impl ProtocolClient {
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     {
+        Self::from_transport(
+            transport::Transport::WebSocket(Box::new(socket)),
+            generation,
+            process,
+        )
+    }
+    #[cfg(unix)]
+    pub(super) fn new_stdio(
+        stdin: std::process::ChildStdin,
+        stdout: std::process::ChildStdout,
+        generation: String,
+        process: Option<Weak<super::ChildOwner>>,
+    ) -> Self {
+        Self::from_transport(
+            transport::Transport::stdio(stdin, stdout),
+            generation,
+            process,
+        )
+    }
+    fn from_transport(
+        socket: transport::Transport,
+        generation: String,
+        process: Option<Weak<super::ChildOwner>>,
+    ) -> Self {
         let (commands, receiver) = mpsc::channel(COMMAND_CAPACITY);
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
+        let approvals = Arc::new(Mutex::new(approvals::Approvals::default()));
         let task = tokio::spawn(protocol_loop(
             socket,
             receiver,
             events.clone(),
             generation,
             process,
+            Arc::clone(&approvals),
         ));
         Self {
             commands,
             events,
             task: Mutex::new(Some(task)),
+            approvals,
         }
     }
 
+    pub(super) fn bind_approval_thread(&self, thread: &str) -> io::Result<()> {
+        self.approvals
+            .lock()
+            .map_err(|_| io::Error::other("approval lock failed"))?
+            .bind_thread(thread);
+        Ok(())
+    }
+    pub(super) fn permissions(&self) -> Vec<Value> {
+        self.approvals
+            .lock()
+            .map(|a| a.visible())
+            .unwrap_or_default()
+    }
+    pub(super) async fn respond_permission(&self, request_id: &str, allow: bool) -> io::Result<()> {
+        let (response, receiver) = oneshot::channel();
+        self.commands
+            .send(ProtocolCommand::Permission {
+                request_id: request_id.into(),
+                allow,
+                response,
+            })
+            .await
+            .map_err(|_| io::Error::other("app-server is closed"))?;
+        receiver
+            .await
+            .map_err(|_| io::Error::other("app-server response outcome unknown"))?
+    }
     pub(super) fn subscribe(&self) -> broadcast::Receiver<AnalystEvent> {
         self.events.subscribe()
     }
@@ -181,15 +294,14 @@ impl Drop for ProtocolClient {
     }
 }
 
-async fn protocol_loop<S>(
-    mut socket: tokio_tungstenite::WebSocketStream<S>,
+async fn protocol_loop(
+    mut socket: transport::Transport,
     mut commands: mpsc::Receiver<ProtocolCommand>,
     events: broadcast::Sender<AnalystEvent>,
     generation: String,
     process: Option<Weak<super::ChildOwner>>,
-) where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
+    approvals: Arc<Mutex<approvals::Approvals>>,
+) {
     let started = Instant::now();
     let mut next_id = 1_u64;
     let mut pending: HashMap<u64, PendingResponse> = HashMap::new();
@@ -245,6 +357,15 @@ async fn protocol_loop<S>(
                         break (format!("failed to write app-server request: {error}"), transport_diagnostic("request_write_failed", &error));
                     }
                 }
+                Some(ProtocolCommand::Permission { request_id, allow, response }) => {
+                    let decision = approvals.lock().map_err(|_|io::Error::other("approval lock failed")).and_then(|mut a|a.take(&request_id,allow));
+                    let (id,result)=match decision { Ok(v)=>v,Err(e)=>{let _=response.send(Err(e));continue;} };
+                    if let Err(error)=socket.send(Message::Text(json!({"jsonrpc":"2.0","id":id,"result":result}).to_string().into())).await {
+                        let _=response.send(Err(io::Error::other("approval write outcome unknown; do not replay")));
+                        break ("approval response write failed".into(),transport_diagnostic("response_write_failed",&error));
+                    }
+                    let _=response.send(Ok(()));
+                }
                 Some(ProtocolCommand::Respond { id, result }) => {
                     let message = json!({"jsonrpc":"2.0","id":id,"result":result});
                     if let Err(error) = socket.send(Message::Text(message.to_string().into())).await {
@@ -258,7 +379,7 @@ async fn protocol_loop<S>(
                     }
                 }
                 Some(ProtocolCommand::Close) | None => {
-                    let _ = socket.close(None).await;
+                    let _ = socket.close().await;
                     break ("app-server client closed".to_owned(), json!({"code":"client_closed"}));
                 }
             },
@@ -266,6 +387,16 @@ async fn protocol_loop<S>(
                 Some(Ok(Message::Text(text))) => {
                     let Ok(message) = serde_json::from_str::<Value>(&text) else { continue };
                     if message.get("method").is_some() {
+                        if let Ok(mut a)=approvals.lock() { a.observe(&message); }
+                        if approvals::Approvals::supported(&message) {
+                            let inserted=approvals.lock().map_err(|_|io::Error::other("approval lock failed")).and_then(|mut a|a.insert(&message));
+                            match inserted {
+                                Ok(true)=> { let _=events.send(AnalystEvent { generation:generation.clone(),message:json!({"method":"cccc/approvalRequired","params":{"threadId":message["params"]["threadId"],"turnId":message["params"]["turnId"]}}),requested_delegation_id:None }); }
+                                Ok(false)=>{}
+                                Err(_)=> { break ("invalid native approval scope".into(),json!({"code":"approval_scope_mismatch"})); }
+                            }
+                            continue;
+                        }
                         if pending_turn_start.is_some() {
                             if deferred_events.len() >= EVENT_CAPACITY {
                                 break ("Codex app-server produced too many events before turn/start settled".into(), json!({"code":"admission_event_overflow"}));
@@ -341,6 +472,9 @@ async fn protocol_loop<S>(
             }
         }
     };
+    if let Ok(mut a) = approvals.lock() {
+        a.clear();
+    }
     let diagnostic = disconnect_diagnostic(diagnostic, &generation, started, process);
     if diagnostic["code"] != "client_closed" {
         // Packaged launches do not require a tracing subscriber. Keep this one-shot

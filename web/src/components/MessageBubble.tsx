@@ -1,3 +1,4 @@
+import { actorRuntimeStatusKey } from "../utils/actorRuntimeStatus";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FloatingPortal, autoUpdate, flip, offset, shift, useFloating } from "@floating-ui/react";
 import { useTranslation } from "react-i18next";
@@ -397,7 +398,10 @@ export const MessageBubble = memo(
     const copyWithFeedback = useCopyFeedback();
 
     const agentStateText = String(agentState?.hot?.focus || "").trim();
-    const agentStateDisplay = agentStateText || t("noAgentStateYet");
+    const runtimeActor = actorById.get(String(ev.by || ""));
+    const runtimeKey = actorRuntimeStatusKey(runtimeActor);
+    const runtimeLabel = t(runtimeKey.startsWith("common:") ? runtimeKey : `actors:${runtimeKey}`);
+    const agentStateDisplay = `${t("actors:runtimeState")}: ${runtimeLabel}${agentStateText ? ` · ${agentStateText}` : ""}`;
     const stateTask = String(agentState?.hot?.active_task_id || "").trim();
     const stateNext = String(agentState?.hot?.next_action || "").trim();
     const stateChanged = String(agentState?.warm?.what_changed || "").trim();

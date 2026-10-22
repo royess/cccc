@@ -35,25 +35,45 @@ impl AnalystSession {
         purpose: SessionPurpose,
         mut cancellation: Option<tokio::sync::watch::Receiver<bool>>,
     ) -> io::Result<Self> {
-        let (process, lines) = lifecycle_timing::run_sync("codex.spawn", || {
-            process::spawn_app_server(&command, &binding.root, &env)
-        })?;
+        let (process, lines, pipes) = if launch_command::stdio(&env) {
+            let (owner, stdin, stdout) = process::spawn_piped_quiet(&command, &binding.root, &env)?;
+            (owner, None, Some((stdin, stdout)))
+        } else {
+            let (owner, lines) = lifecycle_timing::run_sync("codex.spawn", || {
+                process::spawn_app_server(&command, &binding.root, &env)
+            })?;
+            (owner, Some(lines), None)
+        };
         let process = Arc::new(process);
         let work = async {
-            let endpoint =
-                lifecycle_timing::run("codex.endpoint", process::wait_for_endpoint(lines)).await?;
+            let endpoint = if let Some(lines) = lines {
+                lifecycle_timing::run("codex.endpoint", process::wait_for_endpoint(lines)).await?
+            } else {
+                "stdio://owned-child".into()
+            };
             let generation = uuid::Uuid::new_v4().simple().to_string();
-            Self::connect(ConnectConfig {
-                binding,
-                generation,
-                endpoint,
-                remote_tui_prefix,
-                environment: env,
-                resume_thread_id,
-                process: Some(Arc::clone(&process)),
-                delegations: HashMap::new(),
-                purpose,
-            })
+            let protocol = pipes.map(|(stdin, stdout)| {
+                ProtocolClient::new_stdio(
+                    stdin,
+                    stdout,
+                    generation.clone(),
+                    Some(Arc::downgrade(&process)),
+                )
+            });
+            Self::connect_protocol(
+                ConnectConfig {
+                    binding,
+                    generation,
+                    endpoint,
+                    remote_tui_prefix,
+                    environment: env,
+                    resume_thread_id,
+                    process: Some(Arc::clone(&process)),
+                    delegations: HashMap::new(),
+                    purpose,
+                },
+                protocol,
+            )
             .await
         };
         tokio::pin!(work);
@@ -86,6 +106,12 @@ impl AnalystSession {
     }
 
     pub(super) async fn connect(config: ConnectConfig) -> io::Result<Self> {
+        Self::connect_protocol(config, None).await
+    }
+    async fn connect_protocol(
+        config: ConnectConfig,
+        prepared_protocol: Option<ProtocolClient>,
+    ) -> io::Result<Self> {
         let ConnectConfig {
             binding,
             generation,
@@ -97,14 +123,21 @@ impl AnalystSession {
             delegations,
             purpose,
         } = config;
-        process::validate_loopback_endpoint(&endpoint)?;
-        let socket =
-            lifecycle_timing::run("codex.connect", protocol::connect_with_retry(&endpoint)).await?;
-        let protocol = ProtocolClient::new(
-            socket,
-            generation.clone(),
-            process.as_ref().map(Arc::downgrade),
-        );
+        let protocol = if let Some(protocol) = prepared_protocol {
+            protocol
+        } else {
+            process::validate_loopback_endpoint(&endpoint)?;
+            let socket = lifecycle_timing::run(
+                "codex.connect",
+                protocol::connect_with_environment(&endpoint, &environment),
+            )
+            .await?;
+            ProtocolClient::new(
+                socket,
+                generation.clone(),
+                process.as_ref().map(Arc::downgrade),
+            )
+        };
         protocol
             .request(
                 "initialize",
@@ -124,6 +157,30 @@ impl AnalystSession {
             "approvalPolicy":"never",
             "sandbox":"danger-full-access",
         });
+        if matches!(purpose, SessionPurpose::Actor) && launch_command::preserve_policy(&environment)
+        {
+            // Codex app-server ignores TUI -a/-s flags. Read the effective config
+            // and pin both start and resume RPCs, including saved full-access threads.
+            let effective = protocol
+                .request(
+                    "config/read",
+                    json!({"includeLayers":false}),
+                    Duration::from_secs(10),
+                )
+                .await?;
+            let approval = effective["config"]["approval_policy"]
+                .as_str()
+                .filter(|p| matches!(*p, "on-request" | "never" | "untrusted" | "on-failure"))
+                .ok_or_else(|| {
+                    io::Error::other("explicit supported approval policy is required")
+                })?;
+            let sandbox = effective["config"]["sandbox_mode"]
+                .as_str()
+                .filter(|p| matches!(*p, "read-only" | "workspace-write"))
+                .ok_or_else(|| io::Error::other("explicit restrictive sandbox is required"))?;
+            params["approvalPolicy"] = json!(approval);
+            params["sandbox"] = json!(sandbox);
+        }
         match purpose {
             SessionPurpose::VoiceAnalyst => {
                 params["developerInstructions"] = json!(super::launch::ANALYST_INSTRUCTIONS);
@@ -211,6 +268,7 @@ impl AnalystSession {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let requested_policy = params.clone();
         let (started, thread_resumed) = if let Some(thread_id) = requested_thread_id {
             let mut resume_params = params.clone();
             resume_params["threadId"] = json!(thread_id);
@@ -249,6 +307,21 @@ impl AnalystSession {
                 "This Codex version did not confirm the secretary permission profile. Update Codex before using the global secretary.",
             ));
         }
+        if matches!(purpose, SessionPurpose::Actor) && launch_command::preserve_policy(&environment)
+        {
+            let expected_sandbox = if requested_policy["sandbox"] == "workspace-write" {
+                "workspaceWrite"
+            } else {
+                "readOnly"
+            };
+            if started["approvalPolicy"] != requested_policy["approvalPolicy"]
+                || started["sandbox"]["type"] != expected_sandbox
+            {
+                return Err(io::Error::other(
+                    "Codex did not confirm the requested restrictive thread policy",
+                ));
+            }
+        }
         let thread_id = started
             .get("thread")
             .and_then(|thread| thread.get("id"))
@@ -257,6 +330,7 @@ impl AnalystSession {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| io::Error::other("Codex app-server returned an empty thread id"))?
             .to_owned();
+        protocol.bind_approval_thread(&thread_id)?;
         if thread_resumed && requested_thread_id.is_some_and(|requested| requested != thread_id) {
             return Err(io::Error::other(
                 "Codex app-server resumed a different thread",
