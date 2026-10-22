@@ -2,6 +2,7 @@
 
 Upstream: [ChesterRa/cccc](https://github.com/ChesterRa/cccc), Apache-2.0.
 Initial base: `3d3d10cb3906dc353a7d421541b6c6ec98a6d04d` (0.4.44).
+Reviewed upstream: `a212cb04a0b47f3616898f05e08a3cdc9f5687ea` (0.4.44).
 Downstream branch: `framework-enhancements`. Preserve upstream history and license.
 Upstream installation and release links distribute upstream builds.
 
@@ -96,6 +97,12 @@ Prefer upstream equivalents once the same behavior is verified. Consumers should
 pin an exact downstream commit. Source synchronization and builds do not deploy
 or restart services. Audit all new commits for private material before pushing;
 push only the reviewed branch, never all local refs or private draft history.
+
+The reviewed upstream adds incremental Inbox/delivery projections, bounded ledger
+snapshots, runtime recovery fixes and bounded MCP context pages. MCP context
+reads default to at most 100 tasks and 256 KiB; follow `next_cursor` when
+`truncated` is true. The fork also enforces `max_bytes` on task-free overview
+responses, returning an error when their fixed content cannot fit.
 
 ## Messaging and layout refinements
 
